@@ -1,0 +1,30 @@
+name: main
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+      
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04]
+      fail-fast: false
+    steps:
+      - name: Setup ROS
+        uses: ros-tooling/setup-ros@0.2.1
+        with:
+          required-ros-distributions: noetic
+      - name: build and test
+        uses: ros-tooling/action-ros-ci@0.2.3
+        with:
+          package-name: aamcl
+          import-token: ${{secrets.GITHUB_TOKEN}}
+          target-ros1-distro: noetic
+          vcs-repo-file-url: ""
+
