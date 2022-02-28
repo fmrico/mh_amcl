@@ -12,8 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <gtest/gtest.h>
+
+TEST(test1, test_fake)
+{
+  ASSERT_TRUE(true);
+}
+
 int main(int argc, char *argv[])
 {
-
+  testing::InitGoogleTest(&argc, argv);
+  // ros::init(argc, argv, "tester");
+  // ros::NodeHandle nh;
+  return RUN_ALL_TESTS();
   return 0;
 }
