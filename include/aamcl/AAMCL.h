@@ -30,6 +30,6 @@ private:
   ros::NodeHandle n_;
 };
 
-}  // namespace aacml
+}  // namespace aamcl
 
 #endif  // AAMCL_AAMCL_H
