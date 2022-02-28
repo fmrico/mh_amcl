@@ -20,7 +20,6 @@ namespace aamcl
 
 AAMCL::AAMCL()
 {
-
 }
 
 
