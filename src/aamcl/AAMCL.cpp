@@ -13,14 +13,40 @@
 // limitations under the License.
 
 #include "aamcl/AAMCL.h"
+#include "geometry_msgs/Point.h"
+#include "geometry_msgs/PoseArray.h"
+#include "nav_msgs/OccupancyGrid.h"
+#include "nav_msgs/MapMetaData.h"
 #include "ros/ros.h"
+#include <vector>
+#include <math.h>
+#include <time.h>
+#include "tf2/LinearMath/Quaternion.h"
+#include <costmap_2d/costmap_2d_ros.h>
+#include <random>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf/transform_broadcaster.h>
+#include "gazebo_msgs/ModelStates.h"
 
+//sensors
+#include <sensor_msgs/LaserScan.h>
+*/
 namespace aamcl
 {
 
-AAMCL::AAMCL()
-{
-}
+ typedef struct {
+    geometry_msgs::Pose pose;
+    float prob;
+ } Particle;
 
+ class AAMCL
+  {
+
+
+  public:
+   AAMCL::AAMCL(): n_();vec_part_(NUM_PART)
+    {   
+    }
+  }
 
 }  // namespace aamcl
