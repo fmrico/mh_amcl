@@ -15,13 +15,18 @@
 #ifndef AAMCL_AAMCL_H
 #define AAMCL_AAMCL_H
 
+#include <vector>
+
 #include "geometry_msgs/PoseArray.h"
 
-#include "tf2/LinearMath/Transform.h"
-#include "ros/ros.h"
 #include "sensor_msgs/LaserScan.h"
 #include "nav_msgs/OccupancyGrid.h"
-#include "vector"
+#include "geometry_msgs/PoseWithCovarianceStamped.h"
+
+
+#include "tf2_ros/transform_listener.h"
+#include "tf2/LinearMath/Transform.h"
+#include "ros/ros.h"
 
 namespace aamcl
 {
@@ -58,8 +63,15 @@ private:
   std::vector<Particle> particles_;
   bool particles_init;
   float y_max_, x_max_, y_min_, x_min_;
-  void mapcallback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
-  void lsrcallback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
+
+  tf2_ros::Buffer buffer_;
+  tf2_ros::TransformListener listener_;
+  tf2::Stamped<tf2::Transform> odom2prevbf_;
+  bool valid_prev_odom2bf_ {false};
+
+  void map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
+  void laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
+  void initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg);
 };
 
 }  // namespace aamcl

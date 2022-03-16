@@ -17,13 +17,27 @@
 #include "random"
 #include "cmath"
 
+#include "tf2/transform_datatypes.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2/LinearMath/Transform.h"
+#include "geometry_msgs/TransformStamped.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.h"
+#include "tf2/convert.h"
+#include "geometry_msgs/Twist.h"
+
 namespace aamcl
 {
 
 AAMCL::AAMCL()
-: nh_()
+: nh_(),
+  buffer_(),
+  listener_(buffer_)
 {
   pub_particles_ = nh_.advertise<geometry_msgs::PoseArray>("poses", 1000);
+  sub_lsr_ = nh_.subscribe("scan_filtered", 100, &AAMCL::laser_callback, this);
+  sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
+  sub_map_ = nh_.subscribe("initialpose", 100, &AAMCL::initpose_callback, this);
+
   init();
 }
 
@@ -35,24 +49,20 @@ void AAMCL::init()
   {
     particle.prob = 1.0 / NUM_PART;
     particle.pose.setOrigin(tf2::Vector3(0.0, 0.0, 0.0));
-    particle.pose.setRotation(tf2::Quaternion(0.0, 0.0, 0.0, 0.0));
+    particle.pose.setRotation(tf2::Quaternion(0.0, 0.0, 0.0, 1.0));
   }
 }
 
 void
 AAMCL::step()
 {
-  ROS_INFO("Initializing...");
-  init();
   particles_init = true;
-  ROS_INFO_STREAM("Particles initialized: pos particle 1 x" << particles_.at(0).pose.getOrigin().getX());
   predict();
-  ROS_INFO_STREAM("Done predicting , pos particle 1: " << particles_.at(0).pose.getOrigin().getX());
   correct();
+
   if (pub_particles_.getNumSubscribers() > 0)
   {
     publish_particles();
-    ROS_INFO("Subscribers available");
   }
 }
 
@@ -72,85 +82,53 @@ AAMCL::publish_particles()
     pose_msg.position.y = translation.y();
     pose_msg.position.z = translation.z();
 
-    pose_msg.position.x = translation.x();
-    pose_msg.position.y = translation.y();
-    pose_msg.position.z = translation.z();
+    pose_msg.orientation.x = rotation.x();
+    pose_msg.orientation.y = rotation.y();
+    pose_msg.orientation.z = rotation.z();
+    pose_msg.orientation.w = rotation.w();
 
-    particle.prob = 1.0 / NUM_PART;
-    particle.pose.setOrigin(tf2::Vector3(0.0, 0.0, 0.0));
-    particle.pose.setRotation(tf2::Quaternion(0.0, 0.0, 0.0, 0.0));
     msg.poses.push_back(pose_msg);
-    msg.header.stamp = ros::Time::now();
-    msg.header.frame_id = "map";
   }
+  msg.header.stamp = ros::Time::now();
+  msg.header.frame_id = "map";
+
+
   pub_particles_.publish(msg);
 }
 void
 AAMCL::predict()
 {
-  sub_map_ = nh_.subscribe("map", 100, &AAMCL::mapcallback, this);  // ¿Por qué se pone el this?
-  for (auto & particle : particles_)
+  geometry_msgs::TransformStamped odom2bf_msg;
+  std::string error;
+  if (buffer_.canTransform("odom", "base_footprint", ros::Time(0), ros::Duration(0.1), &error))
   {
-    float a_or = -M_PI , b_or = M_PI , b_pos_x , b_pos_y, a_pos_x, a_pos_y;
-    if (!particles_init)
-    {
-     a_pos_x, a_pos_y = 0;
-    }
-    else
-    {
-     // predict particles using laser
-     sub_lsr_ = nh_.subscribe("scan_filtered", 100, &AAMCL::lsrcallback, this);
-     a_pos_x = x_min_;
-     a_pos_y = y_min_;
-    }
+      odom2bf_msg = buffer_.lookupTransform("odom", "base_footprint", ros::Time(0));
 
-    b_pos_x = x_max_, b_pos_y = y_max_;
-  // Generating a random orientation az
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine generator(seed);
-  std::uniform_real_distribution <float> dist_or(a_or, b_or);
-  float ax, ay = 0.0, az = dist_or(generator);
+      tf2::Stamped<tf2::Transform> odom2bf;
+      tf2::fromMsg(odom2bf_msg, odom2bf);
 
-  // Converting to quaternion
-  tf2::Quaternion q;
-  q.setRPY(ax, ay, az);
+      if (valid_prev_odom2bf_) {
+        tf2::Transform bfprev2bf = odom2prevbf_.inverse() * odom2bf;
 
-  // Assigning to a particle
-  particle.pose.setRotation(q);
+        for (auto & particle : particles_) {
+          particle.pose =  particle.pose * bfprev2bf;
+        }
+      }
 
-  // Generating a random distance x position
-  seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine generator2(seed);  // ¿Por qué no puedo utilizar el mismo generator?
-  std::uniform_real_distribution <float> dist_pos_x(a_pos_x, b_pos_x);
-  double x = dist_pos_x(generator2);
-
-  // Generating a random distance y position
-  std::default_random_engine generator3(seed);
-  std::uniform_real_distribution <float> dist_pos_y(a_pos_y, b_pos_y);
-  double y = dist_pos_y(generator3);
-
-  // Assigning Origin to a particle
-  particle.pose.setOrigin(tf2::Vector3(x, y, 0.0));
-
-  // Calculating probability
-  float probx = static_cast<float>(1)/ (b_pos_x - a_pos_x);
-  float proby = static_cast<float>(1)/ (b_pos_y - a_pos_y);
-
-  // Assigning probability to a particle
-  particle.prob = probx * proby;
+      valid_prev_odom2bf_ = true;
+      odom2prevbf_ = odom2bf;
   }
-  return;
 }
 
 void
-AAMCL::mapcallback(const nav_msgs::OccupancyGrid::ConstPtr &msg)
+AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg)
 {
   y_max_ = msg->info.height;
   x_max_ = msg->info.width;
   return;
 }
 void
-AAMCL::lsrcallback(const sensor_msgs::LaserScanConstPtr &lsr_msg)
+AAMCL::laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg)
 {
   for (int i = 0; i< lsr_msg->ranges.size(); i++)
   {
@@ -191,6 +169,30 @@ void
 AAMCL::correct()
 {
 return;
+}
+
+void 
+AAMCL::initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg)
+{
+  std::cerr << "1";
+  if (pose_msg->header.frame_id == "map") {
+  std::cerr << "2";
+    for (auto & particle : particles_)
+    {
+      particle.pose.setOrigin(tf2::Vector3(
+        pose_msg->pose.pose.position.x,
+        pose_msg->pose.pose.position.y,
+        pose_msg->pose.pose.position.z));
+      
+      particle.pose.setRotation({
+        pose_msg->pose.pose.orientation.x,
+        pose_msg->pose.pose.orientation.y,
+        pose_msg->pose.pose.orientation.z,
+        pose_msg->pose.pose.orientation.w});
+    } 
+  } else {
+    ROS_WARN("Not possible to init particles in frame %s", pose_msg->header.frame_id.c_str());
+  }
 }
 
 }  // namespace aamcl
