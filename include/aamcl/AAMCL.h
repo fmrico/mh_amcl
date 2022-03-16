@@ -15,19 +15,51 @@
 #ifndef AAMCL_AAMCL_H
 #define AAMCL_AAMCL_H
 
-#include "ros/ros.h"
+#include "geometry_msgs/PoseArray.h"
 
+#include "tf2/LinearMath/Transform.h"
+#include "ros/ros.h"
+#include "sensor_msgs/LaserScan.h"
+#include "nav_msgs/OccupancyGrid.h"
+#include "vector"
 
 namespace aamcl
 {
+
+typedef struct
+{
+  tf2::Transform pose;
+  double prob;
+}
+Particle;
+
 
 class AAMCL
 {
 public:
   AAMCL();
 
+  void init();
+  void step();
+
+protected:
+  void publish_particles();
+  void predict();
+  void correct();
+
 private:
-  ros::NodeHandle n_;
+  ros::NodeHandle nh_;
+  ros::Publisher pub_particles_;
+  ros::Subscriber sub_map_;
+  ros::Subscriber sub_lsr_;
+
+  static const int NUM_PART = 1;
+
+  std::vector<Particle> particles_;
+  bool particles_init;
+  float y_max_, x_max_, y_min_, x_min_;
+  void mapcallback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
+  void lsrcallback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
 };
 
 }  // namespace aamcl
