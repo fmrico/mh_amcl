@@ -45,7 +45,6 @@ typedef struct
   unsigned int y;
 }
 Point;
-
 class AAMCL
 {
 public:

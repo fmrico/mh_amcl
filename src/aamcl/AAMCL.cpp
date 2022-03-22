@@ -150,7 +150,7 @@ return;
 void
 AAMCL::correct()
 {
-  std::string error, source_frame = "scan_filtered", target_frame = "map";
+  std::string error, source_frame = "base_laser_link", target_frame = "map";
   if(buffer_.canTransform(target_frame, source_frame, ros::Time(0), ros::Duration(0.1), &error))
   {
     geometry_msgs::TransformStamped laser2map_msg = buffer_.lookupTransform(target_frame, source_frame , ros::Time(0));
@@ -159,7 +159,7 @@ AAMCL::correct()
 
     for (auto& part : particles_)
     {
-      for (auto& point: laser_elements_ )
+      for (auto& point: laser_elements_)
       {
         tf2::Vector3 map_point = laser2map * tf2::Vector3(point.x, point.y, 0);
         if (layered_costmap_.getCost(map_point.getX(), map_point.getY() == costmap_2d::FREE_SPACE))
