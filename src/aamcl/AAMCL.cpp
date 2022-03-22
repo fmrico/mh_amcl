@@ -24,6 +24,8 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
 #include "tf2/convert.h"
 #include "geometry_msgs/Twist.h"
+#include "costmap_2d/costmap_2d_publisher.h"
+#include "costmap_2d/cost_values.h"
 
 namespace aamcl
 {
@@ -31,7 +33,10 @@ namespace aamcl
 AAMCL::AAMCL()
 : nh_(),
   buffer_(),
-  listener_(buffer_)
+  listener_(buffer_),
+  costmap_()
+
+    // costmap_("costmap",buffer_);
 {
   pub_particles_ = nh_.advertise<geometry_msgs::PoseArray>("poses", 1000);
   sub_lsr_ = nh_.subscribe("scan_filtered", 100, &AAMCL::laser_callback, this);
@@ -100,7 +105,7 @@ AAMCL::predict()
 {
   geometry_msgs::TransformStamped odom2bf_msg;
   std::string error;
-  if (buffer_.canTransform("odom", "base_footprint", ros::Time(0), ros::Duration(0.1), &error))
+  if (buffer_.canTransform("odom", "base_footprint", ros::Time(0), ros::Duration(0.1), &error)) //  ¿No sería bf2odom?
   {
       odom2bf_msg = buffer_.lookupTransform("odom", "base_footprint", ros::Time(0));
 
@@ -111,7 +116,7 @@ AAMCL::predict()
         tf2::Transform bfprev2bf = odom2prevbf_.inverse() * odom2bf;
 
         for (auto & particle : particles_) {
-          particle.pose =  particle.pose * bfprev2bf;
+          particle.pose =  particle.pose * bfprev2bf; //  ¿Y la probabilidad?
         }
       }
 
@@ -123,9 +128,9 @@ AAMCL::predict()
 void
 AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg)
 {
-  y_max_ = msg->info.height;
-  x_max_ = msg->info.width;
-  return;
+  //  y_max_ = msg->info.height;
+  //  x_max_ = msg->info.width;
+  
 }
 void
 AAMCL::laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg)
@@ -168,7 +173,6 @@ return;
 void
 AAMCL::correct()
 {
-return;
 }
 
 void 

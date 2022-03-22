@@ -27,6 +27,7 @@
 #include "tf2_ros/transform_listener.h"
 #include "tf2/LinearMath/Transform.h"
 #include "ros/ros.h"
+#include "costmap_2d/costmap_2d.h"
 
 namespace aamcl
 {
@@ -68,6 +69,7 @@ private:
   tf2_ros::TransformListener listener_;
   tf2::Stamped<tf2::Transform> odom2prevbf_;
   bool valid_prev_odom2bf_ {false};
+  costmap_2d::Costmap2D& costmap_;
 
   void map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
   void laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
