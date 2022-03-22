@@ -27,7 +27,7 @@
 #include "tf2_ros/transform_listener.h"
 #include "tf2/LinearMath/Transform.h"
 #include "ros/ros.h"
-#include "costmap_2d/costmap_2d.h"
+#include "costmap_2d/static_layer.h"
 
 namespace aamcl
 {
@@ -39,6 +39,12 @@ typedef struct
 }
 Particle;
 
+typedef struct
+{
+  unsigned int x;
+  unsigned int y;
+}
+Point;
 
 class AAMCL
 {
@@ -69,7 +75,8 @@ private:
   tf2_ros::TransformListener listener_;
   tf2::Stamped<tf2::Transform> odom2prevbf_;
   bool valid_prev_odom2bf_ {false};
-  costmap_2d::Costmap2D& costmap_;
+  costmap_2d::StaticLayer layered_costmap_;
+  std::vector<Point> laser_elements_;
 
   void map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
   void laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg);

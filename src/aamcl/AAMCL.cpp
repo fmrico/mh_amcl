@@ -24,6 +24,8 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
 #include "tf2/convert.h"
 #include "geometry_msgs/Twist.h"
+#include "costmap_2d/static_layer.h"
+
 #include "costmap_2d/costmap_2d_publisher.h"
 #include "costmap_2d/cost_values.h"
 
@@ -34,13 +36,12 @@ AAMCL::AAMCL()
 : nh_(),
   buffer_(),
   listener_(buffer_),
-  costmap_()
-
+  layered_costmap_()
     // costmap_("costmap",buffer_);
 {
   pub_particles_ = nh_.advertise<geometry_msgs::PoseArray>("poses", 1000);
   sub_lsr_ = nh_.subscribe("scan_filtered", 100, &AAMCL::laser_callback, this);
-  sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
+   //  sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
   sub_map_ = nh_.subscribe("initialpose", 100, &AAMCL::initpose_callback, this);
 
   init();
@@ -128,51 +129,55 @@ AAMCL::predict()
 void
 AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg)
 {
-  //  y_max_ = msg->info.height;
-  //  x_max_ = msg->info.width;
-  
+
 }
 void
 AAMCL::laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg)
 {
+  laser_elements_.resize(lsr_msg->ranges.size());
   for (int i = 0; i< lsr_msg->ranges.size(); i++)
   {
     float thetha = lsr_msg->angle_min + i*lsr_msg->angle_increment;
-    float element_x = lsr_msg->ranges.at(i) * cos(thetha);
-    float element_y = lsr_msg->ranges.at(i) * sin(thetha);
-
-  if (i == 1)
-  {
-    x_min_, x_max_ = element_x;
-    y_min_, y_max_ = element_y;
+    Point p;
+    p.x = lsr_msg->ranges.at(i) * cos(thetha);
+    p.y = lsr_msg->ranges.at(i) * sin(thetha);
+    laser_elements_.push_back(p);
+  
   }
-
-  else
-  {
-     if ( element_x < x_min_)
-     {
-       x_min_ = element_x;
-     }
-     if ( element_x > x_max_)
-     {
-       x_max_ = element_x;
-     }
-     if ( element_y < y_min_ )
-     {
-       y_min_ = element_y;
-     }
-     if (element_y > y_max_)
-     {
-       y_max_ = element_y;
-     }
-  }  // else
-  }  // for
 return;
 }
 
 void
 AAMCL::correct()
 {
+  std::string error, source_frame = "scan_filtered", target_frame = "map";
+  if(buffer_.canTransform(target_frame, source_frame, ros::Time(0), ros::Duration(0.1), &error))
+  {
+    geometry_msgs::TransformStamped laser2map_msg = buffer_.lookupTransform(target_frame, source_frame , ros::Time(0));
+    tf2::Stamped<tf2::Transform> laser2map;
+    tf2::fromMsg(laser2map_msg, laser2map);
+
+    for (auto& part : particles_)
+    {
+      for (auto& point: laser_elements_ )
+      {
+        tf2::Vector3 map_point = laser2map * tf2::Vector3(point.x, point.y, 0);
+        if (layered_costmap_.getCost(map_point.getX(), map_point.getY() == costmap_2d::FREE_SPACE))
+        {
+          part.prob +=0.1;
+        }
+        else if (layered_costmap_.getCost(map_point.getX(), map_point.getY() == costmap_2d::LETHAL_OBSTACLE))
+        {
+          part.prob -=0.1;
+        }
+      }
+      
+    }
+  }
+  else
+  {
+    std::cerr << "Error in tranformation from " << source_frame << " to " << target_frame << " : " << error;
+  }
 }
 
 void 
