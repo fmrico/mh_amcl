@@ -116,7 +116,7 @@ AAMCL::predict()
         tf2::Transform bfprev2bf = odom2prevbf_.inverse() * odom2bf;
 
         for (auto & particle : particles_) {
-          particle.pose =  particle.pose * bfprev2bf; //  ¿Y la probabilidad?
+          particle.pose =  particle.pose * bfprev2bf;
         }
       }
 
