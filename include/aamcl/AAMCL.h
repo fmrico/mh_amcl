@@ -45,6 +45,7 @@ typedef struct
   unsigned int y;
 }
 Point;
+
 class AAMCL
 {
 public:
@@ -61,6 +62,7 @@ protected:
 private:
   ros::NodeHandle nh_;
   ros::Publisher pub_particles_;
+  ros::Publisher laser_marker_pub;
   ros::Subscriber sub_map_;
   ros::Subscriber sub_lsr_;
 
@@ -74,9 +76,13 @@ private:
   tf2_ros::TransformListener listener_;
   tf2::Stamped<tf2::Transform> odom2prevbf_;
   bool valid_prev_odom2bf_ {false};
-  costmap_2d::StaticLayer layered_costmap_;
-  std::vector<Point> laser_elements_;
+  costmap_2d::Costmap2D costmap_;
 
+  sensor_msgs::LaserScan last_laser_;
+
+  std::vector<tf2::Vector3> create_elements(const sensor_msgs::LaserScan & lsr_msg);
+  void publish_marker(const std::list<tf2::Vector3> & readings);
+  unsigned char interpretValue(unsigned char value);
   void map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
   void laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
   void initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg);

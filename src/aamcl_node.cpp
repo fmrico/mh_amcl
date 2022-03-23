@@ -22,7 +22,7 @@ int main(int argc, char **argv)
 
   aamcl::AAMCL amcl;
 
-  ros::Rate loop_rate(20);
+  ros::Rate loop_rate(5);
   while (ros::ok())
   {
     amcl.step();

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
+
 #include "aamcl/AAMCL.h"
 #include "ros/ros.h"
 #include "random"
@@ -22,6 +24,7 @@
 #include "tf2/LinearMath/Transform.h"
 #include "geometry_msgs/TransformStamped.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
+#include "visualization_msgs/MarkerArray.h"
 #include "tf2/convert.h"
 #include "geometry_msgs/Twist.h"
 #include "costmap_2d/static_layer.h"
@@ -40,8 +43,11 @@ AAMCL::AAMCL()
     // costmap_("costmap",buffer_);
 {
   pub_particles_ = nh_.advertise<geometry_msgs::PoseArray>("poses", 1000);
+  laser_marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("laser_marker", 1000);
   sub_lsr_ = nh_.subscribe("scan_filtered", 100, &AAMCL::laser_callback, this);
+
    //  sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
+
   sub_map_ = nh_.subscribe("initialpose", 100, &AAMCL::initpose_callback, this);
 
   init();
@@ -127,52 +133,166 @@ AAMCL::predict()
 }
 
 void
-AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg)
+AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr & msg)
 {
-
+   unsigned int size_x = msg->info.width, size_y = msg->info.height;
+ 
+   ROS_DEBUG("Received a %d X %d map at %f m/pix", size_x, size_y, msg->info.resolution);
+ 
+  costmap_.resizeMap(size_x, size_y, msg->info.resolution, msg->info.origin.position.x,
+                               msg->info.origin.position.y);
+   
+ 
+   unsigned int index = 0;
+ 
+   // initialize the costmap with static data
+   for (unsigned int i = 0; i < size_y; ++i)
+   {
+     for (unsigned int j = 0; j < size_x; ++j)
+     {
+       unsigned char value = msg->data[index];
+       costmap_[index] = interpretValue(value);
+       ++index;
+     }
+   }
 }
+
+unsigned char 
+AAMCL::interpretValue(unsigned char value)
+{
+  // check if the static value is above the unknown or lethal thresholds
+  if (value == 254)
+    return costmap_2d::NO_INFORMATION;
+  else if (value == 255)
+    return costmap_2d::FREE_SPACE;
+  else if (value >= 50)
+    return costmap_2d::LETHAL_OBSTACLE;
+
+
+  double scale = (double) value / 254;
+  return scale * costmap_2d::LETHAL_OBSTACLE;
+}
+
 void
-AAMCL::laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg)
+AAMCL::laser_callback(const sensor_msgs::LaserScanConstPtr & lsr_msg)
 {
-  laser_elements_.resize(lsr_msg->ranges.size());
-  for (int i = 0; i< lsr_msg->ranges.size(); i++)
-  {
-    float thetha = lsr_msg->angle_min + i*lsr_msg->angle_increment;
-    Point p;
-    p.x = lsr_msg->ranges.at(i) * cos(thetha);
-    p.y = lsr_msg->ranges.at(i) * sin(thetha);
-    laser_elements_.push_back(p);
-  
-  }
-return;
+  last_laser_ = *lsr_msg;
 }
 
+std::vector<tf2::Vector3>
+AAMCL::create_elements(const sensor_msgs::LaserScan & lsr_msg)
+{
+  std::vector<tf2::Vector3> laser_elements;
+
+  laser_elements.resize(lsr_msg.ranges.size());
+  for (int i = 0; i< lsr_msg.ranges.size(); i++)
+  {
+    float thetha = lsr_msg.angle_min + i * lsr_msg.angle_increment;
+
+    laser_elements.push_back({
+        lsr_msg.ranges.at(i) * cos(thetha),
+        lsr_msg.ranges.at(i) * sin(thetha),
+        0.0});
+  }
+
+  return laser_elements;
+}
+
+void
+AAMCL::publish_marker(const std::list<tf2::Vector3> & readings)
+{
+  visualization_msgs::MarkerArray marker_array;
+  int counter = 0;
+
+  for (const auto & point : readings) {
+    visualization_msgs::Marker marker;
+
+    marker.header.stamp = ros::Time::now();
+    marker.header.frame_id = "map";
+
+    marker.ns = "default";
+    marker.id = counter++;
+    marker.type = visualization_msgs::Marker::CUBE;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = point.x();
+    marker.pose.position.y = point.y();
+    marker.pose.position.z = point.z();
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = 0.0;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.1;
+    marker.scale.y = 0.1;
+    marker.scale.z = 0.1;
+    marker.color.r = 0.0;
+    marker.color.g = 1.0;
+    marker.color.b = 0.0;
+    marker.color.a = 1.0;
+
+    marker_array.markers.push_back(marker);
+  }
+
+  laser_marker_pub.publish(marker_array);
+}
 void
 AAMCL::correct()
 {
-  std::string error, source_frame = "base_laser_link", target_frame = "map";
-  if(buffer_.canTransform(target_frame, source_frame, ros::Time(0), ros::Duration(0.1), &error))
+  if (last_laser_.ranges.empty()) return;
+
+  std::cerr << "Correcting" << std::endl;
+  auto laser_elements = create_elements(last_laser_);
+  
+  std::string error;
+  std::string source_frame = last_laser_.header.frame_id;
+  std::string target_frame = "base_footprint";
+
+  if(buffer_.canTransform(target_frame, source_frame, last_laser_.header.stamp, ros::Duration(0.1), &error))
   {
-    geometry_msgs::TransformStamped laser2map_msg = buffer_.lookupTransform(target_frame, source_frame , ros::Time(0));
-    tf2::Stamped<tf2::Transform> laser2map;
-    tf2::fromMsg(laser2map_msg, laser2map);
+    geometry_msgs::TransformStamped laser2bf_msg = buffer_.lookupTransform(target_frame, source_frame , last_laser_.header.stamp);
+    tf2::Stamped<tf2::Transform> laser2bf;
+    tf2::fromMsg(laser2bf_msg, laser2bf);
 
     for (auto& part : particles_)
     {
-      for (auto& point: laser_elements_)
+
+      std::list<tf2::Vector3> reading;
+
+      for (auto& point: laser_elements)
       {
-        tf2::Vector3 map_point = laser2map * tf2::Vector3(point.x, point.y, 0);
-        if (layered_costmap_.getCost(map_point.getX(), map_point.getY() == costmap_2d::FREE_SPACE))
+        reading.push_back(part.pose * (tf2::Transform(laser2bf) * point));
+
+        //laser_marker_pub
+
+      }
+
+
+      for (auto & read: reading)
+      {
+        unsigned int mx, my;
+        layered_costmap_.worldToMap(read.x(), read.y(), mx, my);
+        unsigned char cost = layered_costmap_.getCost(mx, my);
+
+        std::cerr << cost << " ";
+
+        if (cost == costmap_2d::FREE_SPACE)
         {
-          part.prob +=0.1;
+          part.prob = std::clamp(part.prob + 0.1, 0.0, 1.0);
         }
-        else if (layered_costmap_.getCost(map_point.getX(), map_point.getY() == costmap_2d::LETHAL_OBSTACLE))
+        else if (cost == costmap_2d::LETHAL_OBSTACLE)
         {
-          part.prob -=0.1;
+          part.prob = std::clamp(part.prob - 0.1, 0.0, 1.0);
         }
       }
-      
+
+      std::cerr << std::endl;
+
+      publish_marker(reading);
+
+
     }
+
+
+
   }
   else
   {
