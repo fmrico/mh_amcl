@@ -31,7 +31,6 @@
 
 #include "costmap_2d/costmap_2d_publisher.h"
 #include "costmap_2d/cost_values.h"
-
 namespace aamcl
 {
 
@@ -39,16 +38,15 @@ AAMCL::AAMCL()
 : nh_(),
   buffer_(),
   listener_(buffer_),
-  layered_costmap_()
+  costmap_()
     // costmap_("costmap",buffer_);
 {
   pub_particles_ = nh_.advertise<geometry_msgs::PoseArray>("poses", 1000);
   laser_marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("laser_marker", 1000);
   sub_lsr_ = nh_.subscribe("scan_filtered", 100, &AAMCL::laser_callback, this);
+  sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
 
-   //  sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
-
-  sub_map_ = nh_.subscribe("initialpose", 100, &AAMCL::initpose_callback, this);
+  sub_init_pose_ = nh_.subscribe("initialpose", 100, &AAMCL::initpose_callback, this);
 
   init();
 }
@@ -150,24 +148,26 @@ AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr & msg)
    {
      for (unsigned int j = 0; j < size_x; ++j)
      {
-       unsigned char value = msg->data[index];
-       costmap_[index] = interpretValue(value);
+       unsigned char value = msg->data.at(index);
+       unsigned int x , y;
+       costmap_.indexToCells(index,x,y);
+       costmap_.setCost(x, y, interpretValue(value));
+        //  std::cerr << "Index: " << index << " X: " << x << " Y: " << y << " Cost: " << interpretValue(value) << std::endl;
        ++index;
      }
    }
 }
 
-unsigned char 
+unsigned int 
 AAMCL::interpretValue(unsigned char value)
 {
   // check if the static value is above the unknown or lethal thresholds
-  if (value == 254)
-    return costmap_2d::NO_INFORMATION;
-  else if (value == 255)
-    return costmap_2d::FREE_SPACE;
-  else if (value >= 50)
+  if (value == -1)
+    return costmap_2d::NO_INFORMATION; // Depending if track unknown space or not
+  else if (value >= 70)
     return costmap_2d::LETHAL_OBSTACLE;
-
+  else if (value <= 10)
+    return costmap_2d::FREE_SPACE;
 
   double scale = (double) value / 254;
   return scale * costmap_2d::LETHAL_OBSTACLE;
@@ -269,25 +269,32 @@ AAMCL::correct()
       for (auto & read: reading)
       {
         unsigned int mx, my;
-        layered_costmap_.worldToMap(read.x(), read.y(), mx, my);
-        unsigned char cost = layered_costmap_.getCost(mx, my);
+        costmap_.worldToMap(read.getX(), read.getY(), mx, my);
+         //  std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
+         //  std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
+         //  std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
+         //  std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
+        unsigned char cost = costmap_.getCost(mx, my);
 
-        std::cerr << cost << " ";
+         //  std::cerr << cost << " ";
 
         if (cost == costmap_2d::FREE_SPACE)
         {
-          part.prob = std::clamp(part.prob + 0.1, 0.0, 1.0);
+           // std::cerr << "Probability incrementing , previous: " << part.prob;
+           part.prob = std::clamp(part.prob + 0.1, 0.0, 1.0);
+           // std::cerr << " updated: " << part.prob << std::endl;
         }
         else if (cost == costmap_2d::LETHAL_OBSTACLE)
         {
+          // std::cerr << "Probability incrementing , previous: " << part.prob;          
           part.prob = std::clamp(part.prob - 0.1, 0.0, 1.0);
+          // std::cerr << " updated: " << part.prob << std::endl;
         }
       }
 
       std::cerr << std::endl;
 
       publish_marker(reading);
-
 
     }
 
@@ -303,9 +310,7 @@ AAMCL::correct()
 void 
 AAMCL::initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg)
 {
-  std::cerr << "1";
   if (pose_msg->header.frame_id == "map") {
-  std::cerr << "2";
     for (auto & particle : particles_)
     {
       particle.pose.setOrigin(tf2::Vector3(

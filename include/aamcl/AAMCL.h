@@ -65,6 +65,7 @@ private:
   ros::Publisher laser_marker_pub;
   ros::Subscriber sub_map_;
   ros::Subscriber sub_lsr_;
+  ros::Subscriber sub_init_pose_;
 
   static const int NUM_PART = 1;
 
@@ -82,7 +83,7 @@ private:
 
   std::vector<tf2::Vector3> create_elements(const sensor_msgs::LaserScan & lsr_msg);
   void publish_marker(const std::list<tf2::Vector3> & readings);
-  unsigned char interpretValue(unsigned char value);
+  unsigned int interpretValue(unsigned char value);
   void map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
   void laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
   void initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg);
