@@ -27,6 +27,7 @@
 #include "tf2_ros/transform_listener.h"
 #include "tf2/LinearMath/Transform.h"
 #include "ros/ros.h"
+#include "costmap_2d/static_layer.h"
 
 namespace aamcl
 {
@@ -38,6 +39,12 @@ typedef struct
 }
 Particle;
 
+typedef struct
+{
+  unsigned int x;
+  unsigned int y;
+}
+Point;
 
 class AAMCL
 {
@@ -55,8 +62,10 @@ protected:
 private:
   ros::NodeHandle nh_;
   ros::Publisher pub_particles_;
+  ros::Publisher laser_marker_pub;
   ros::Subscriber sub_map_;
   ros::Subscriber sub_lsr_;
+  ros::Subscriber sub_init_pose_;
 
   static const int NUM_PART = 1;
 
@@ -68,7 +77,13 @@ private:
   tf2_ros::TransformListener listener_;
   tf2::Stamped<tf2::Transform> odom2prevbf_;
   bool valid_prev_odom2bf_ {false};
+  costmap_2d::Costmap2D costmap_;
 
+  sensor_msgs::LaserScan last_laser_;
+
+  std::vector<tf2::Vector3> create_elements(const sensor_msgs::LaserScan & lsr_msg);
+  void publish_marker(const std::list<tf2::Vector3> & readings);
+  unsigned int interpretValue(unsigned char value);
   void map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
   void laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
   void initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg);
