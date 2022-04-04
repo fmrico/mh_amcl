@@ -16,6 +16,7 @@
 #define AAMCL_AAMCL_H
 
 #include <vector>
+#include <random>
 
 #include "geometry_msgs/PoseArray.h"
 
@@ -59,6 +60,8 @@ protected:
   void predict();
   void correct();
 
+  tf2::Transform add_noise(const tf2::Transform & dm);
+
 private:
   ros::NodeHandle nh_;
   ros::Publisher pub_particles_;
@@ -67,7 +70,7 @@ private:
   ros::Subscriber sub_lsr_;
   ros::Subscriber sub_init_pose_;
 
-  static const int NUM_PART = 1;
+  static const int NUM_PART = 5;
 
   std::vector<Particle> particles_;
   bool particles_init;
@@ -87,6 +90,10 @@ private:
   void map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
   void laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
   void initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg);
+
+  std::default_random_engine generator_;
+  std::normal_distribution<double> translation_noise_;
+  std::normal_distribution<double> rotation_noise_;
 };
 
 }  // namespace aamcl
