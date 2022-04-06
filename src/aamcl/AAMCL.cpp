@@ -38,10 +38,13 @@ AAMCL::AAMCL()
 : nh_(),
   buffer_(),
   listener_(buffer_),
-  costmap_()
+  costmap_(),
+  translation_noise_(0.0, 0.1),
+  rotation_noise_(0.0, 0.1)
+
     // costmap_("costmap",buffer_);
 {
-  pub_particles_ = nh_.advertise<geometry_msgs::PoseArray>("poses", 1000);
+  pub_particles_ = nh_.advertise<visualization_msgs::MarkerArray>("poses", 1000);
   laser_marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("laser_marker", 1000);
   sub_lsr_ = nh_.subscribe("scan_filtered", 100, &AAMCL::laser_callback, this);
   sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
@@ -66,9 +69,18 @@ void AAMCL::init()
 void
 AAMCL::step()
 {
+  std::cerr << "=====================================================" << std::endl;
   particles_init = true;
   predict();
   correct();
+
+  for (int i = 0; i < NUM_PART; i++) {
+    double roll, pitch, yaw;
+    tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(roll, pitch, yaw);
+
+    std::cerr << "(" << particles_[i].pose.getOrigin().x() << ", " << particles_[i].pose.getOrigin().y() << 
+      ", " << yaw << ") ["<< particles_[i].prob << "]" << std::endl;
+  }
 
   if (pub_particles_.getNumSubscribers() > 0)
   {
@@ -79,29 +91,42 @@ AAMCL::step()
 void
 AAMCL::publish_particles()
 {
-  geometry_msgs::PoseArray msg;
+  visualization_msgs::MarkerArray msg;
 
+  int counter = 0;
   for (auto & particle : particles_)
   {
-    geometry_msgs::Pose pose_msg;
+    visualization_msgs::Marker pose_msg;
+
+    pose_msg.header.frame_id = "map";
+    pose_msg.header.stamp = ros::Time::now();
+    pose_msg.id = counter++;
+    pose_msg.type = visualization_msgs::Marker::ARROW;
+    pose_msg.type = visualization_msgs::Marker::ADD;    
 
     const auto translation = particle.pose.getOrigin();
     const auto rotation = particle.pose.getRotation();
 
-    pose_msg.position.x = translation.x();
-    pose_msg.position.y = translation.y();
-    pose_msg.position.z = translation.z();
+    pose_msg.pose.position.x = translation.x();
+    pose_msg.pose.position.y = translation.y();
+    pose_msg.pose.position.z = translation.z();
 
-    pose_msg.orientation.x = rotation.x();
-    pose_msg.orientation.y = rotation.y();
-    pose_msg.orientation.z = rotation.z();
-    pose_msg.orientation.w = rotation.w();
+    pose_msg.pose.orientation.x = rotation.x();
+    pose_msg.pose.orientation.y = rotation.y();
+    pose_msg.pose.orientation.z = rotation.z();
+    pose_msg.pose.orientation.w = rotation.w();
 
-    msg.poses.push_back(pose_msg);
+    pose_msg.scale.x = 0.1;
+    pose_msg.scale.y = 0.01;
+    pose_msg.scale.z = 0.01;
+
+    pose_msg.color.r = (1.0 - particle.prob);
+    pose_msg.color.g = particle.prob;
+    pose_msg.color.b = 0.0;
+    pose_msg.color.a = 1.0;
+
+    msg.markers.push_back(pose_msg);
   }
-  msg.header.stamp = ros::Time::now();
-  msg.header.frame_id = "map";
-
 
   pub_particles_.publish(msg);
 }
@@ -121,7 +146,7 @@ AAMCL::predict()
         tf2::Transform bfprev2bf = odom2prevbf_.inverse() * odom2bf;
 
         for (auto & particle : particles_) {
-          particle.pose =  particle.pose * bfprev2bf;
+          particle.pose =  particle.pose * bfprev2bf * add_noise(bfprev2bf);
         }
       }
 
@@ -130,12 +155,40 @@ AAMCL::predict()
   }
 }
 
+tf2::Transform
+AAMCL::add_noise(const tf2::Transform & dm)
+{
+  tf2::Transform returned_noise;
+
+  double noise_tra = translation_noise_(generator_);
+  double noise_rot = rotation_noise_(generator_);
+
+
+  returned_noise.setOrigin(dm.getOrigin()* noise_tra);
+
+  double roll, pitch, yaw;
+  tf2::Matrix3x3(dm.getRotation()).getRPY(roll, pitch, yaw);
+
+  double newyaw = yaw * noise_rot;
+
+  tf2::Quaternion q;
+  q.setRPY(roll, pitch, newyaw);
+  returned_noise.setRotation(q);
+
+
+  // std::cerr << "[" << noise_tra << "," << noise_rot << "] (" << 
+  //   dm.getOrigin().x()  << "," << dm.getOrigin().y()  << "," <<yaw << ")  -> (" << 
+  //   returned_noise.getOrigin().x()  << "," << returned_noise.getOrigin().y()  << "," << newyaw << ")" << std::endl; 
+
+  return returned_noise;
+}
+
 void
 AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr & msg)
 {
-   unsigned int size_x = msg->info.width, size_y = msg->info.height;
+  unsigned int size_x = msg->info.width, size_y = msg->info.height;
  
-   ROS_DEBUG("Received a %d X %d map at %f m/pix", size_x, size_y, msg->info.resolution);
+  ROS_DEBUG("Received a %d X %d map at %f m/pix", size_x, size_y, msg->info.resolution);
  
   costmap_.resizeMap(size_x, size_y, msg->info.resolution, msg->info.origin.position.x,
                                msg->info.origin.position.y);
@@ -246,6 +299,8 @@ AAMCL::correct()
   std::string source_frame = last_laser_.header.frame_id;
   std::string target_frame = "base_footprint";
 
+  double max_distance = 10.0;
+
   if(buffer_.canTransform(target_frame, source_frame, last_laser_.header.stamp, ros::Duration(0.1), &error))
   {
     geometry_msgs::TransformStamped laser2bf_msg = buffer_.lookupTransform(target_frame, source_frame , last_laser_.header.stamp);
@@ -254,13 +309,14 @@ AAMCL::correct()
 
     for (auto& part : particles_)
     {
-
       std::list<tf2::Vector3> reading;
 
       for (auto& point: laser_elements)
       {
-        reading.push_back(part.pose * (tf2::Transform(laser2bf) * point));
-
+        if (point.length() < max_distance)
+        {
+          reading.push_back(part.pose * (tf2::Transform(laser2bf) * point));
+        }
         //laser_marker_pub
 
       }
@@ -270,10 +326,17 @@ AAMCL::correct()
       {
         unsigned int mx, my;
         costmap_.worldToMap(read.getX(), read.getY(), mx, my);
+<<<<<<< HEAD
           // std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
           // std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
           // std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
           // std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
+=======
+        // std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
+        // std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
+        // std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
+        // std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
+>>>>>>> 1a2d1a7d807c5d1d6746db55647d4ae9653d3456
         unsigned char cost = costmap_.getCost(mx, my);
 
          //  std::cerr << cost << " ";
@@ -281,13 +344,13 @@ AAMCL::correct()
         if (cost == costmap_2d::FREE_SPACE)
         {
            // std::cerr << "Probability incrementing , previous: " << part.prob;
-           part.prob = std::clamp(part.prob + 0.1, 0.0, 1.0);
+           part.prob = std::clamp(part.prob + 0.01, 0.0, 1.0);
            // std::cerr << " updated: " << part.prob << std::endl;
         }
         else if (cost == costmap_2d::LETHAL_OBSTACLE)
         {
           // std::cerr << "Probability incrementing , previous: " << part.prob;          
-          part.prob = std::clamp(part.prob - 0.1, 0.0, 1.0);
+          part.prob = std::clamp(part.prob - 0.01, 0.0, 1.0);
           // std::cerr << " updated: " << part.prob << std::endl;
         }
       }
