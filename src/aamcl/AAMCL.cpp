@@ -14,7 +14,7 @@
 
 #include <algorithm>
 
-#include "aamcl/AAMCL.h"
+#include "AAMCL.h"
 #include "ros/ros.h"
 #include "random"
 #include "cmath"
