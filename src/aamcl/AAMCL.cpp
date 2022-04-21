@@ -14,7 +14,7 @@
 
 #include <algorithm>
 
-#include "aamcl/AAMCL.h"
+#include "AAMCL.h"
 #include "ros/ros.h"
 #include "random"
 #include "cmath"
@@ -326,10 +326,17 @@ AAMCL::correct()
       {
         unsigned int mx, my;
         costmap_.worldToMap(read.getX(), read.getY(), mx, my);
+<<<<<<< HEAD
+          // std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
+          // std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
+          // std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
+          // std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
+=======
         // std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
         // std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
         // std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
         // std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
+>>>>>>> 1a2d1a7d807c5d1d6746db55647d4ae9653d3456
         unsigned char cost = costmap_.getCost(mx, my);
 
          //  std::cerr << cost << " ";
