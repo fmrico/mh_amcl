@@ -14,7 +14,7 @@
 
 #include <algorithm>
 
-#include "AAMCL.h"
+#include "aamcl/AAMCL.h"
 #include "ros/ros.h"
 #include "random"
 #include "cmath"
@@ -27,10 +27,11 @@
 #include "visualization_msgs/MarkerArray.h"
 #include "tf2/convert.h"
 #include "geometry_msgs/Twist.h"
-#include "costmap_2d/static_layer.h"
 
 #include "costmap_2d/costmap_2d_publisher.h"
 #include "costmap_2d/cost_values.h"
+
+#include "costmap_2d/inflation_layer.h"
 namespace aamcl
 {
 
@@ -41,8 +42,6 @@ AAMCL::AAMCL()
   costmap_(),
   translation_noise_(0.0, 0.1),
   rotation_noise_(0.0, 0.1)
-
-    // costmap_("costmap",buffer_);
 {
   pub_particles_ = nh_.advertise<visualization_msgs::MarkerArray>("poses", 1000);
   laser_marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("laser_marker", 1000);
@@ -195,7 +194,7 @@ AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr & msg)
    
  
    unsigned int index = 0;
- 
+   costmap_2d::InflationLayer InflatLayer;
    // initialize the costmap with static data
    for (unsigned int i = 0; i < size_y; ++i)
    {
@@ -206,6 +205,7 @@ AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr & msg)
        costmap_.indexToCells(index,x,y);
        costmap_.setCost(x, y, interpretValue(value));
         //  std::cerr << "Index: " << index << " X: " << x << " Y: " << y << " Cost: " << interpretValue(value) << std::endl;
+       InflatLayer.updateCosts(costmap_, 0, 0, i, j);
        ++index;
      }
    }
@@ -326,17 +326,10 @@ AAMCL::correct()
       {
         unsigned int mx, my;
         costmap_.worldToMap(read.getX(), read.getY(), mx, my);
-<<<<<<< HEAD
           // std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
           // std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
           // std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
           // std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
-=======
-        // std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
-        // std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
-        // std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
-        // std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
->>>>>>> 1a2d1a7d807c5d1d6746db55647d4ae9653d3456
         unsigned char cost = costmap_.getCost(mx, my);
 
          //  std::cerr << cost << " ";
