@@ -59,8 +59,11 @@ protected:
   void publish_particles();
   void predict();
   void correct();
+  void reseed();
 
   tf2::Transform add_noise(const tf2::Transform & dm);
+
+  tf2::Transform extract_random_read_with_noise(sensor_msgs::LaserScan & scan, double noise);
 
 private:
   ros::NodeHandle nh_;
@@ -70,7 +73,7 @@ private:
   ros::Subscriber sub_lsr_;
   ros::Subscriber sub_init_pose_;
 
-  static const int NUM_PART = 5;
+  static const int NUM_PART = 50;
 
   std::vector<Particle> particles_;
   bool particles_init;
@@ -94,6 +97,7 @@ private:
   std::default_random_engine generator_;
   std::normal_distribution<double> translation_noise_;
   std::normal_distribution<double> rotation_noise_;
+
 };
 
 }  // namespace aamcl

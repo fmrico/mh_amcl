@@ -13,11 +13,8 @@
 // limitations under the License.
 
 #include <algorithm>
-
-#include "AAMCL.h"
-#include "ros/ros.h"
-#include "random"
-#include "cmath"
+#include <random>
+#include <cmath>
 
 #include "tf2/transform_datatypes.h"
 #include "tf2_ros/transform_listener.h"
@@ -31,6 +28,11 @@
 
 #include "costmap_2d/costmap_2d_publisher.h"
 #include "costmap_2d/cost_values.h"
+
+#include "aamcl/AAMCL.h"
+#include "ros/ros.h"
+
+
 namespace aamcl
 {
 
@@ -73,6 +75,7 @@ AAMCL::step()
   particles_init = true;
   predict();
   correct();
+  reseed();
 
   for (int i = 0; i < NUM_PART; i++) {
     double roll, pitch, yaw;
@@ -130,6 +133,7 @@ AAMCL::publish_particles()
 
   pub_particles_.publish(msg);
 }
+
 void
 AAMCL::predict()
 {
@@ -292,83 +296,136 @@ AAMCL::correct()
 {
   if (last_laser_.ranges.empty()) return;
 
-  std::cerr << "Correcting" << std::endl;
-  auto laser_elements = create_elements(last_laser_);
-  
+  tf2::Stamped<tf2::Transform> bf2laser;
   std::string error;
-  std::string source_frame = last_laser_.header.frame_id;
-  std::string target_frame = "base_footprint";
-
-  double max_distance = 10.0;
-
-  if(buffer_.canTransform(target_frame, source_frame, last_laser_.header.stamp, ros::Duration(0.1), &error))
+  if (buffer_.canTransform(
+    last_laser_.header.frame_id, "base_footprint", last_laser_.header.stamp), ros::Duration(0.1), &error)
   {
-    geometry_msgs::TransformStamped laser2bf_msg = buffer_.lookupTransform(target_frame, source_frame , last_laser_.header.stamp);
-    tf2::Stamped<tf2::Transform> laser2bf;
-    tf2::fromMsg(laser2bf_msg, laser2bf);
+    auto bf2laser_msg = buffer_.lookupTransform(
+      "base_footprint", last_laser_.header.frame_id, last_laser_.header.stamp);
+    tf2::fromMsg(bf2laser_msg, bf2laser);
+    
+  } else {
+    ROS_WARN("Timeout while waiting TF %s -> base_footprint [%s]",
+      last_laser_.header.frame_id.c_str(), error.c_str());
+    return;
+  }
+  
+  double noise_dist = 0.001;
+  int max_tests = 30;
+  int test_counter = 0;
+  while (!last_laser_.ranges.empty() && test_counter++ < max_tests)
+  {
+    tf2::Transform laser2point = extract_random_read_with_noise(last_laser_, noise_dist);
 
-    for (auto& part : particles_)
+    for (auto & p : particles_)
     {
-      std::list<tf2::Vector3> reading;
+      auto map2point = p.pose * bf2laser * laser2point;
+      
+      unsigned int mx, my;
+      if (costmap_.worldToMap(map2point.getOrigin().x(), map2point.getOrigin().y(), mx, my)) {
+        auto cost = costmap_.getCost(mx, my);
 
-      for (auto& point: laser_elements)
-      {
-        if (point.length() < max_distance)
-        {
-          reading.push_back(part.pose * (tf2::Transform(laser2bf) * point));
-        }
-        //laser_marker_pub
-
-      }
-
-
-      for (auto & read: reading)
-      {
-        unsigned int mx, my;
-        costmap_.worldToMap(read.getX(), read.getY(), mx, my);
-<<<<<<< HEAD
-          // std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
-          // std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
-          // std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
-          // std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
-=======
-        // std::cerr << "Valor de X: " << read.getX() << " Valor de Y: " << read.getY() << std::endl;
-        // std::cerr << "Valor de mapx " << mx << " Valor de mapy " << my << std::endl;
-        // std::cerr << "Valor mínimo de x" << costmap_.getOriginX() << "Valor máximo de X " << costmap_.getSizeInMetersX() << std::endl;
-        // std::cerr << "Valor mínimo de y" << costmap_.getOriginY() << "Valor máximo de Y " << costmap_.getSizeInMetersY() << std::endl; 
->>>>>>> 1a2d1a7d807c5d1d6746db55647d4ae9653d3456
-        unsigned char cost = costmap_.getCost(mx, my);
-
-         //  std::cerr << cost << " ";
-
-        if (cost == costmap_2d::FREE_SPACE)
-        {
-           // std::cerr << "Probability incrementing , previous: " << part.prob;
-           part.prob = std::clamp(part.prob + 0.01, 0.0, 1.0);
-           // std::cerr << " updated: " << part.prob << std::endl;
-        }
-        else if (cost == costmap_2d::LETHAL_OBSTACLE)
-        {
-          // std::cerr << "Probability incrementing , previous: " << part.prob;          
-          part.prob = std::clamp(part.prob - 0.01, 0.0, 1.0);
-          // std::cerr << " updated: " << part.prob << std::endl;
+        if (cost == costmap_2d::LETHAL_OBSTACLE) {
+          p.prob = std::clamp(p.prob + (1.0 / last_laser_.ranges.size()), 0.0, 1.0);
+        } else {
+          p.prob = std::clamp(p.prob - (1.0 / last_laser_.ranges.size()), 0.0, 1.0);
         }
       }
-
-      std::cerr << std::endl;
-
-      publish_marker(reading);
-
     }
-
-
-
   }
-  else
-  {
-    std::cerr << "Error in tranformation from " << source_frame << " to " << target_frame << " : " << error;
-  }
+
 }
+
+void
+AAMCL::reseed()
+{
+  // Sort particles by prob
+  std::sort(particles_.begin(), particles_.end(),
+   [](const Particle & a, const Particle & b) -> bool
+  { 
+    return a.prob > b.prob; 
+  });
+
+  double percentage_losers = 0.3;
+  double percentage_winners = 0.1;
+
+  int number_losers = particles_.size() * percentage_losers;
+  int number_no_losers = particles_.size() - number_losers;
+  int number_winners = particles_.size() * percentage_winners;
+
+  std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
+  
+  std::uniform_int_distribution<int> selector(0, number_winners);
+  std::normal_distribution<double> noise_x(0, 0.01);
+  std::normal_distribution<double> noise_y(0, 0.01);
+
+  for (int i = 0; i < number_losers; i++)
+  {
+    int index = selector(generator_);
+
+    Particle p;
+    p.prob = new_particles.back().prob;
+
+    auto w_pose = particles_[i].pose.getOrigin();
+
+    double nx = noise_x(generator_);
+    double ny = noise_y(generator_);
+
+    p.pose.setOrigin({w_pose.x() + nx, w_pose.y() + ny, w_pose.z()});
+    p.pose.setRotation(particles_[i].pose.getRotation());
+
+    new_particles.push_back(p);
+  }
+
+  particles_ = new_particles;
+  
+  // Normalize the distribution ton sum 1.0
+  double sum = 0.0;
+  std::for_each(particles_.begin(), particles_.end(),
+    [&sum] (const Particle & p)
+    {
+      sum += p.prob;
+    });
+  
+  double norm_factor = 1.0;
+  if (sum > 0.0) {
+    norm_factor = 1.0 / sum;
+  }
+
+  std::for_each(particles_.begin(), particles_.end(),
+    [norm_factor] (Particle & p)
+    {
+      p.prob = p.prob * norm_factor;
+    });
+}
+
+tf2::Transform 
+AAMCL::extract_random_read_with_noise(sensor_msgs::LaserScan & scan, double noise)
+{
+  std::uniform_int_distribution<int> selector(0, scan.ranges.size() - 1);
+  std::normal_distribution<double> dist_noise(0.0, noise);
+  
+  int index = selector(generator_);
+
+  double dist = scan.ranges[index];
+  double dist_with_noise = dist + dist_noise(generator_);
+
+  double angle = scan.angle_min + index * scan.angle_increment;
+
+  tf2::Transform ret;
+  double x = dist_with_noise * cos(angle);
+  double y = dist_with_noise * sin(angle);
+
+  ret.setOrigin({x, y, 0.0});
+  ret.setRotation({0.0, 0.0, 0.0, 1.0});
+
+  // Remove used scan reading
+  scan.ranges.erase(scan.ranges.begin() + index);
+
+  return ret;
+}
+
 
 void 
 AAMCL::initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg)
