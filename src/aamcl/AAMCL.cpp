@@ -44,8 +44,12 @@ AAMCL::AAMCL()
   
   sub_laser_ = nh_.subscribe("scan_filtered", 100, &AAMCL::laser_callback, this);
   sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
-
   sub_init_pose_ = nh_.subscribe("initialpose", 100, &AAMCL::initpose_callback, this);
+
+  predict_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::predict, this);
+  correct_timer_ = nh_.createTimer(ros::Duration(0.005), &AAMCL::correct, this);
+  reseed_timer_ = nh_.createTimer(ros::Duration(2), &AAMCL::reseed, this);
+  publish_particles_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::publish_particles, this);
 
   init();
 }
@@ -56,19 +60,21 @@ void AAMCL::init()
 }
 
 void
-AAMCL::step()
+AAMCL::publish_particles(const ros::TimerEvent & event)
 {
-  predict();
-  correct();
-  reseed();
+  auto start = ros::Time::now();
+  (void)event;
 
   particles_.publish_particles();
+  ROS_DEBUG_STREAM("Publish [" << (ros::Time::now() - start).toNSec() << " nsecs]");
 }
 
-
 void
-AAMCL::predict()
+AAMCL::predict(const ros::TimerEvent & event)
 {
+  auto start = ros::Time::now();
+  (void)event;
+
   geometry_msgs::TransformStamped odom2bf_msg;
   std::string error;
   if (buffer_.canTransform("odom", "base_footprint", ros::Time(0), ros::Duration(0.1), &error)) //  ¿No sería bf2odom?
@@ -87,6 +93,8 @@ AAMCL::predict()
       valid_prev_odom2bf_ = true;
       odom2prevbf_ = odom2bf;
   }
+
+  ROS_DEBUG_STREAM("Predict [" << (ros::Time::now() - start).toNSec() << " nsecs]");
 }
 
 void
@@ -111,7 +119,6 @@ AAMCL::map_callback(const nav_msgs::OccupancyGrid::ConstPtr & msg)
        unsigned int x , y;
        costmap_.indexToCells(index,x,y);
        costmap_.setCost(x, y, interpretValue(value));
-        //  std::cerr << "Index: " << index << " X: " << x << " Y: " << y << " Cost: " << interpretValue(value) << std::endl;
        ++index;
      }
    }
@@ -139,17 +146,25 @@ AAMCL::laser_callback(const sensor_msgs::LaserScanConstPtr & lsr_msg)
 }
 
 void
-AAMCL::correct()
-{
+AAMCL::correct(const ros::TimerEvent & event)
+{ 
+  auto start = ros::Time::now();
+  (void)event;
+
   if (last_laser_.ranges.empty()) return;
 
   particles_.correct_once(last_laser_, costmap_);
+  ROS_DEBUG_STREAM("Correct [" << (ros::Time::now() - start).toNSec() << " nsecs]");
 }
 
 void
-AAMCL::reseed()
+AAMCL::reseed(const ros::TimerEvent & event)
 {
+  auto start = ros::Time::now();
+  (void)event;
+
   particles_.reseed();
+  ROS_DEBUG_STREAM("Reseed [" << (ros::Time::now() - start).toNSec() << " nsecs]");
 }
 
 void 

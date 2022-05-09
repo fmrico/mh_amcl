@@ -44,15 +44,22 @@ public:
   void step();
 
 protected:
-  void predict();
-  void correct();
-  void reseed();
+  void predict(const ros::TimerEvent & event);
+  void correct(const ros::TimerEvent & event);
+  void reseed(const ros::TimerEvent & event);
+  void publish_particles(const ros::TimerEvent & event);
 
 private:
   ros::NodeHandle nh_;
   ros::Subscriber sub_map_;
   ros::Subscriber sub_laser_;
   ros::Subscriber sub_init_pose_;
+
+  ros::Timer predict_timer_;
+  ros::Timer correct_timer_;
+  ros::Timer reseed_timer_;
+  ros::Timer publish_particles_timer_;
+
 
   ParticlesDistribution particles_;
 

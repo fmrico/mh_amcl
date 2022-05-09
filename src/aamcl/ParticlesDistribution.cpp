@@ -52,9 +52,30 @@ void
 ParticlesDistribution::init(const tf2::Transform & pose_init)
 {
   init();
+
+  std::normal_distribution<double> noise_x(0, 0.5);
+  std::normal_distribution<double> noise_y(0, 0.5);
+  std::normal_distribution<double> noise_t(0, 0.5);
+
   for (auto & particle : particles_)
   {
     particle.pose = pose_init;
+
+    tf2::Vector3 pose = particle.pose.getOrigin();
+    pose.setX(pose.getX() + noise_x(generator_));
+    pose.setY(pose.getY() + noise_y(generator_));
+
+    particle.pose.setOrigin(pose);
+
+    double roll, pitch, yaw;
+    tf2::Matrix3x3(particle.pose.getRotation()).getRPY(roll, pitch, yaw);
+
+    double newyaw = yaw * noise_t(generator_);
+
+    tf2::Quaternion q;
+    q.setRPY(roll, pitch, newyaw);
+    
+    particle.pose.setRotation(q);
   }
 }
 
@@ -222,8 +243,9 @@ ParticlesDistribution::reseed()
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
   
   std::uniform_int_distribution<int> selector(0, number_winners);
-  std::normal_distribution<double> noise_x(0, 0.01);
-  std::normal_distribution<double> noise_y(0, 0.01);
+  std::normal_distribution<double> noise_x(0, 0.05);
+  std::normal_distribution<double> noise_y(0, 0.05);
+  std::normal_distribution<double> noise_t(0, 0.05);
 
   for (int i = 0; i < number_losers; i++)
   {
@@ -238,7 +260,17 @@ ParticlesDistribution::reseed()
     double ny = noise_y(generator_);
 
     p.pose.setOrigin({w_pose.x() + nx, w_pose.y() + ny, w_pose.z()});
-    p.pose.setRotation(particles_[i].pose.getRotation());
+    
+    double roll, pitch, yaw;
+
+    tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(roll, pitch, yaw);
+
+    double newyaw = yaw * noise_t(generator_);
+
+    tf2::Quaternion q;
+    q.setRPY(roll, pitch, newyaw);
+    
+    p.pose.setRotation(q);
 
     new_particles.push_back(p);
   }
