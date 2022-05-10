@@ -16,7 +16,6 @@
 #define AAMCL_AAMCL_H
 
 #include <vector>
-#include <random>
 
 #include "geometry_msgs/PoseArray.h"
 
@@ -27,25 +26,14 @@
 
 #include "tf2_ros/transform_listener.h"
 #include "tf2/LinearMath/Transform.h"
-#include "ros/ros.h"
+
 #include "costmap_2d/static_layer.h"
+
+#include "aamcl/ParticlesDistribution.h"
+#include "ros/ros.h"
 
 namespace aamcl
 {
-
-typedef struct
-{
-  tf2::Transform pose;
-  double prob;
-}
-Particle;
-
-typedef struct
-{
-  unsigned int x;
-  unsigned int y;
-}
-Point;
 
 class AAMCL
 {
@@ -56,48 +44,39 @@ public:
   void step();
 
 protected:
-  void publish_particles();
-  void predict();
-  void correct();
-  void reseed();
-
-  tf2::Transform add_noise(const tf2::Transform & dm);
-
-  tf2::Transform extract_random_read_with_noise(sensor_msgs::LaserScan & scan, double noise);
+  void predict(const ros::TimerEvent & event);
+  void correct(const ros::TimerEvent & event);
+  void reseed(const ros::TimerEvent & event);
+  void publish_particles(const ros::TimerEvent & event);
 
 private:
   ros::NodeHandle nh_;
-  ros::Publisher pub_particles_;
-  ros::Publisher laser_marker_pub;
   ros::Subscriber sub_map_;
-  ros::Subscriber sub_lsr_;
+  ros::Subscriber sub_laser_;
   ros::Subscriber sub_init_pose_;
 
-  static const int NUM_PART = 50;
+  ros::Timer predict_timer_;
+  ros::Timer correct_timer_;
+  ros::Timer reseed_timer_;
+  ros::Timer publish_particles_timer_;
 
-  std::vector<Particle> particles_;
-  bool particles_init;
-  float y_max_, x_max_, y_min_, x_min_;
+
+  ParticlesDistribution particles_;
 
   tf2_ros::Buffer buffer_;
   tf2_ros::TransformListener listener_;
+
   tf2::Stamped<tf2::Transform> odom2prevbf_;
   bool valid_prev_odom2bf_ {false};
-  costmap_2d::Costmap2D costmap_;
 
+  costmap_2d::Costmap2D costmap_;
   sensor_msgs::LaserScan last_laser_;
 
-  std::vector<tf2::Vector3> create_elements(const sensor_msgs::LaserScan & lsr_msg);
-  void publish_marker(const std::list<tf2::Vector3> & readings);
   unsigned int interpretValue(unsigned char value);
   void map_callback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
+
   void laser_callback(const sensor_msgs::LaserScanConstPtr &lsr_msg);
   void initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &pose_msg);
-
-  std::default_random_engine generator_;
-  std::normal_distribution<double> translation_noise_;
-  std::normal_distribution<double> rotation_noise_;
-
 };
 
 }  // namespace aamcl
