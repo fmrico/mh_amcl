@@ -60,7 +60,7 @@ protected:
   
   std::default_random_engine generator_;
 
-  static const int NUM_PART = 500;
+  static const int NUM_PART = 200;
   std::vector<Particle> particles_;
 
   tf2_ros::Buffer buffer_;

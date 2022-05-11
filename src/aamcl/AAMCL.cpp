@@ -48,8 +48,8 @@ AAMCL::AAMCL()
 
   predict_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::predict, this);
   correct_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::correct, this);
-  reseed_timer_ = nh_.createTimer(ros::Duration(2), &AAMCL::reseed, this);
-  publish_particles_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::publish_particles, this);
+  reseed_timer_ = nh_.createTimer(ros::Duration(1), &AAMCL::reseed, this);
+  publish_particles_timer_ = nh_.createTimer(ros::Duration(1), &AAMCL::publish_particles, this);
 
   init();
 }
@@ -143,14 +143,13 @@ void
 AAMCL::laser_callback(const sensor_msgs::LaserScanConstPtr & lsr_msg)
 {
   last_laser_ = *lsr_msg;
-  std::cerr << counter_ << " =========" << std::endl;
   counter_ = 0;
 }
 
 void
 AAMCL::correct(const ros::TimerEvent & event)
 { 
-  std::cerr << counter_++ << " ";
+  // std::cerr << counter_++ << " ";
   auto start = ros::Time::now();
   (void)event;
 

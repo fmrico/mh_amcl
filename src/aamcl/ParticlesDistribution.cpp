@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <random>
+#include <cmath>
 
 #include "visualization_msgs/MarkerArray.h"
 #include "sensor_msgs/LaserScan.h"
@@ -53,9 +54,9 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
 {
   init();
 
-  std::normal_distribution<double> noise_x(0, 0.3);
-  std::normal_distribution<double> noise_y(0, 0.3);
-  std::normal_distribution<double> noise_t(0, 0.2);
+  std::normal_distribution<double> noise_x(0, 0.1);
+  std::normal_distribution<double> noise_y(0, 0.1);
+  std::normal_distribution<double> noise_t(0, 0.05);
 
   for (auto & particle : particles_)
   {
@@ -84,7 +85,7 @@ ParticlesDistribution::predict(const tf2::Transform & movement)
 {
   for (auto & particle : particles_)
   {
-    particle.pose =  particle.pose * movement * add_noise(movement);
+    particle.pose =  particle.pose * movement;// * add_noise(movement);
   }
 }
 
@@ -164,12 +165,15 @@ ParticlesDistribution::publish_particles()
 void
 ParticlesDistribution::correct_once(const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap)
 {
-  if (!bf2laser_init_) {
-    bf2laser_init_ = true;
+  //std::cerr << "====================================" << std::endl;
+
+  // if (!bf2laser_init_) {
+  //   bf2laser_init_ = true;
     std::string error;
     if (buffer_.canTransform(
       scan.header.frame_id, "base_footprint", scan.header.stamp), ros::Duration(0.1), &error)
     {
+      //std::cerr << ")))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))" <<  scan.header.frame_id << std::endl;
       auto bf2laser_msg = buffer_.lookupTransform(
         "base_footprint", scan.header.frame_id, scan.header.stamp);
       tf2::fromMsg(bf2laser_msg, bf2laser_);
@@ -179,27 +183,86 @@ ParticlesDistribution::correct_once(const sensor_msgs::LaserScan & scan, const c
         scan.header.frame_id.c_str(), error.c_str());
       return;
     }
-  }
+  // }
 
-  for (int i = 0; i < scan.ranges.size(); i++) {
-    tf2::Transform laser2point = get_random_read_with_noise(scan, i, 0.01);
+  /*for (int i = 0; i < NUM_PART; i++)
+  {
+    const auto & p = particles_[i];
+    double roll, pitch, yaw;
 
-    for (auto & p : particles_)
+    tf2::Matrix3x3(p.pose.getRotation()).getRPY(roll, pitch, yaw);
+    //std::cerr << "-> [" << i <<"] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << 
+    //  ", " << yaw << ") => " << p.prob << std::endl;
+  }*/
+
+  for (int j = 0; j < scan.ranges.size(); j++) {
+
+    if (std::isinf(scan.ranges[j]) || std::isnan(scan.ranges[j]) || scan.ranges[j] < scan.range_min || scan.ranges[j] > scan.range_max) {
+      continue;
+    }
+
+    tf2::Transform laser2point = get_random_read_with_noise(scan, j, 0.01);
+
+    for (int i = 0; i < NUM_PART; i++)
     {
+      auto & p = particles_[i];
+
       auto map2point = p.pose * bf2laser_ * laser2point;
+
+      /*if (i == 0) {
+        {
+          double roll, pitch, yaw;
+          tf2::Matrix3x3(p.pose.getRotation()).getRPY(roll, pitch, yaw);
+          std::cerr << "=== p.pose [" << i <<"] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << 
+            ", " << yaw << ")" << std::endl;
+        }
+        {
+          double roll, pitch, yaw;
+          tf2::Matrix3x3(bf2laser_.getRotation()).getRPY(roll, pitch, yaw);
+          std::cerr << "=== bf2laser_ [" << i <<"] (" << bf2laser_.getOrigin().x() << ", " << bf2laser_.getOrigin().y() << 
+            ", " << yaw << ")" << std::endl;
+        }        
+        {
+          double roll, pitch, yaw;
+          tf2::Matrix3x3(laser2point.getRotation()).getRPY(roll, pitch, yaw);
+          std::cerr << "=== laser2point [" << i <<"] (" << laser2point.getOrigin().x() << ", " << laser2point.getOrigin().y() << 
+            ", " << yaw << ")" << std::endl;
+        }      
+        {
+          double roll, pitch, yaw;
+          tf2::Matrix3x3(map2point.getRotation()).getRPY(roll, pitch, yaw);
+          std::cerr << "=== map2point [" << i <<"] (" << map2point.getOrigin().x() << ", " << map2point.getOrigin().y() << 
+            ", " << yaw << ")" ;
+        }    
+
+      }*/
 
       unsigned int mx, my;
       if (costmap.worldToMap(map2point.getOrigin().x(), map2point.getOrigin().y(), mx, my)) {
         auto cost = costmap.getCost(mx, my);
 
         if (cost == costmap_2d::LETHAL_OBSTACLE) {
-          p.prob = std::clamp(p.prob + (1.0 / scan.ranges.size()), 0.0, 1.0);
+          // std::cerr << "^"<< std::endl;
+          p.prob = std::clamp(p.prob + (1.0 / static_cast<double>(scan.ranges.size())), 0.0, 1.0);
         } else {
-          p.prob = std::clamp(p.prob - (1.0 / scan.ranges.size()), 0.0, 1.0);
+          // std::cerr << "v"<< std::endl;
+          p.prob = std::clamp(p.prob - (1.0 / static_cast<double>(scan.ranges.size())), 0.0, 1.0);
         }
       }
     }
   }
+
+
+  /*for (int i = 0; i < NUM_PART; i++)
+  {
+    const auto & p = particles_[i];
+    double roll, pitch, yaw;
+
+    tf2::Matrix3x3(p.pose.getRotation()).getRPY(roll, pitch, yaw);
+    std::cerr << "<- [" << i <<"] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << 
+      ", " << yaw << ") => " << p.prob << std::endl;
+  }*/
+
 
 }
 
@@ -212,13 +275,16 @@ ParticlesDistribution::get_random_read_with_noise(const sensor_msgs::LaserScan &
   // int index = selector(generator_);
 
   double dist = scan.ranges[index];
-  double dist_with_noise = dist + dist_noise(generator_);
+  double dist_with_noise = dist;//  + dist_noise(generator_);
 
-  double angle = scan.angle_min + index * scan.angle_increment;
+  double angle = scan.angle_min + static_cast<double>(index) * scan.angle_increment;
 
   tf2::Transform ret;
+  
   double x = dist_with_noise * cos(angle);
   double y = dist_with_noise * sin(angle);
+
+  // std::cerr << "******* a[" << angle << "] d["<< dist_with_noise << "] -> (" << x << ", " << y << ")" << std::endl;
 
   ret.setOrigin({x, y, 0.0});
   ret.setRotation({0.0, 0.0, 0.0, 1.0});
@@ -248,7 +314,7 @@ ParticlesDistribution::reseed()
   std::normal_distribution<double> selector(0, number_winners);
   std::normal_distribution<double> noise_x(0, 0.05);
   std::normal_distribution<double> noise_y(0, 0.05);
-  std::normal_distribution<double> noise_t(0, 0.05);
+  std::normal_distribution<double> noise_t(0, 0.03);
 
   for (int i = 0; i < number_losers; i++)
   {
@@ -268,7 +334,7 @@ ParticlesDistribution::reseed()
 
     tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(roll, pitch, yaw);
 
-    double newyaw = yaw * noise_t(generator_);
+    double newyaw = yaw + noise_t(generator_);
 
     tf2::Quaternion q;
     q.setRPY(roll, pitch, newyaw);
