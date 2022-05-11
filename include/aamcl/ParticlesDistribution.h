@@ -56,7 +56,7 @@ protected:
   ros::Publisher pub_particles_;
 
   tf2::Transform add_noise(const tf2::Transform & dm);
-  tf2::Transform get_random_read_with_noise(const sensor_msgs::LaserScan & scan, double noise);
+  tf2::Transform get_random_read_with_noise(const sensor_msgs::LaserScan & scan, int index, double noise);
   
   std::default_random_engine generator_;
 
@@ -68,6 +68,7 @@ protected:
 
   tf2::Stamped<tf2::Transform> bf2laser_;
   bool bf2laser_init_ {false};
+
 };
 
 }  // namespace aamcl

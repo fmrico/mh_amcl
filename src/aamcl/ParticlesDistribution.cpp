@@ -53,9 +53,9 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
 {
   init();
 
-  std::normal_distribution<double> noise_x(0, 0.5);
-  std::normal_distribution<double> noise_y(0, 0.5);
-  std::normal_distribution<double> noise_t(0, 0.5);
+  std::normal_distribution<double> noise_x(0, 0.3);
+  std::normal_distribution<double> noise_y(0, 0.3);
+  std::normal_distribution<double> noise_t(0, 0.2);
 
   for (auto & particle : particles_)
   {
@@ -70,7 +70,7 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
     double roll, pitch, yaw;
     tf2::Matrix3x3(particle.pose.getRotation()).getRPY(roll, pitch, yaw);
 
-    double newyaw = yaw * noise_t(generator_);
+    double newyaw = yaw + noise_t(generator_);
 
     tf2::Quaternion q;
     q.setRPY(roll, pitch, newyaw);
@@ -104,7 +104,7 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
   double roll, pitch, yaw;
   tf2::Matrix3x3(dm.getRotation()).getRPY(roll, pitch, yaw);
 
-  double newyaw = yaw * noise_rot;
+  double newyaw = yaw + noise_rot;
 
   tf2::Quaternion q;
   q.setRPY(roll, pitch, newyaw);
@@ -181,32 +181,35 @@ ParticlesDistribution::correct_once(const sensor_msgs::LaserScan & scan, const c
     }
   }
 
-  tf2::Transform laser2point = get_random_read_with_noise(scan, 0.01);
+  for (int i = 0; i < scan.ranges.size(); i++) {
+    tf2::Transform laser2point = get_random_read_with_noise(scan, i, 0.01);
 
-  for (auto & p : particles_)
-  {
-    auto map2point = p.pose * bf2laser_ * laser2point;
-    
-    unsigned int mx, my;
-    if (costmap.worldToMap(map2point.getOrigin().x(), map2point.getOrigin().y(), mx, my)) {
-      auto cost = costmap.getCost(mx, my);
+    for (auto & p : particles_)
+    {
+      auto map2point = p.pose * bf2laser_ * laser2point;
 
-      if (cost == costmap_2d::LETHAL_OBSTACLE) {
-        p.prob = std::clamp(p.prob + (1.0 / scan.ranges.size()), 0.0, 1.0);
-      } else {
-        p.prob = std::clamp(p.prob - (1.0 / scan.ranges.size()), 0.0, 1.0);
+      unsigned int mx, my;
+      if (costmap.worldToMap(map2point.getOrigin().x(), map2point.getOrigin().y(), mx, my)) {
+        auto cost = costmap.getCost(mx, my);
+
+        if (cost == costmap_2d::LETHAL_OBSTACLE) {
+          p.prob = std::clamp(p.prob + (1.0 / scan.ranges.size()), 0.0, 1.0);
+        } else {
+          p.prob = std::clamp(p.prob - (1.0 / scan.ranges.size()), 0.0, 1.0);
+        }
       }
     }
   }
+
 }
 
 tf2::Transform 
-ParticlesDistribution::get_random_read_with_noise(const sensor_msgs::LaserScan & scan, double noise)
+ParticlesDistribution::get_random_read_with_noise(const sensor_msgs::LaserScan & scan, int index, double noise)
 {
-  std::uniform_int_distribution<int> selector(0, scan.ranges.size() - 1);
+  // std::uniform_int_distribution<int> selector(0, scan.ranges.size() - 1);
   std::normal_distribution<double> dist_noise(0.0, noise);
   
-  int index = selector(generator_);
+  // int index = selector(generator_);
 
   double dist = scan.ranges[index];
   double dist_with_noise = dist + dist_noise(generator_);
@@ -242,14 +245,14 @@ ParticlesDistribution::reseed()
 
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
   
-  std::uniform_int_distribution<int> selector(0, number_winners);
+  std::normal_distribution<double> selector(0, number_winners);
   std::normal_distribution<double> noise_x(0, 0.05);
   std::normal_distribution<double> noise_y(0, 0.05);
   std::normal_distribution<double> noise_t(0, 0.05);
 
   for (int i = 0; i < number_losers; i++)
   {
-    int index = selector(generator_);
+    int index = std::clamp(static_cast<int>(selector(generator_)), 0, number_winners);
 
     Particle p;
     p.prob = new_particles.back().prob;
@@ -277,6 +280,7 @@ ParticlesDistribution::reseed()
 
   particles_ = new_particles;
   
+  /*
   // Normalize the distribution ton sum 1.0
   double sum = 0.0;
   std::for_each(particles_.begin(), particles_.end(),
@@ -295,6 +299,7 @@ ParticlesDistribution::reseed()
     {
       p.prob = p.prob * norm_factor;
     });
+  */
 }
 
 }  // namespace aamcl
