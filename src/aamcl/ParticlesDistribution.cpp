@@ -31,7 +31,9 @@ namespace aamcl
 ParticlesDistribution::ParticlesDistribution()
 : nh_(),
   buffer_(),
-  listener_(buffer_)
+  listener_(buffer_),
+  rd_(),
+  generator_(rd_())
 {
   pub_particles_ = nh_.advertise<visualization_msgs::MarkerArray>("poses", 1000);
 }
@@ -39,27 +41,25 @@ ParticlesDistribution::ParticlesDistribution()
 void 
 ParticlesDistribution::init()
 {
-  particles_.resize(NUM_PART);
+  tf2::Transform init_pose;
+  init_pose.setOrigin(tf2::Vector3(0.0, 0.0, 0.0));
+  init_pose.setRotation(tf2::Quaternion(0.0, 0.0, 0.0, 1.0));
 
-  for (auto & particle : particles_)
-  {
-    particle.prob = 1.0 / NUM_PART;
-    particle.pose.setOrigin(tf2::Vector3(0.0, 0.0, 0.0));
-    particle.pose.setRotation(tf2::Quaternion(0.0, 0.0, 0.0, 1.0));
-  }
+  init(init_pose);
 }
 
 void
 ParticlesDistribution::init(const tf2::Transform & pose_init)
 {
-  init();
-
   std::normal_distribution<double> noise_x(0, 0.1);
   std::normal_distribution<double> noise_y(0, 0.1);
   std::normal_distribution<double> noise_t(0, 0.05);
 
+  particles_.resize(NUM_PART);
+
   for (auto & particle : particles_)
   {
+    particle.prob = 1.0 / NUM_PART;
     particle.pose = pose_init;
 
     tf2::Vector3 pose = particle.pose.getOrigin();
@@ -85,7 +85,15 @@ ParticlesDistribution::predict(const tf2::Transform & movement)
 {
   for (auto & particle : particles_)
   {
-    particle.pose =  particle.pose * movement;// * add_noise(movement);
+    // const auto x1 = particle.pose.getOrigin().x();
+    // const auto y1 = particle.pose.getOrigin().y();
+    // std::cerr << "[1] " << x1 << ", " << y1 << std::endl;
+
+    particle.pose =  particle.pose * movement * add_noise(movement);
+
+    // const auto x2 = particle.pose.getOrigin().x();
+    // const auto y2 = particle.pose.getOrigin().y();
+    // std::cerr << "[2] " << x2 << ", " << y2 << std::endl;
   }
 }
 
@@ -94,13 +102,20 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
 {
   tf2::Transform returned_noise;
 
-  std::normal_distribution<double> translation_noise_(0.0, 0.1);
-  std::normal_distribution<double> rotation_noise_(0.0, 0.1);
+  std::normal_distribution<double> translation_noise_(0.0, 0.01);
+  std::normal_distribution<double> rotation_noise_(0.0, 0.01);
 
   double noise_tra = translation_noise_(generator_);
   double noise_rot = rotation_noise_(generator_);
 
-  returned_noise.setOrigin(dm.getOrigin()* noise_tra);
+  double x = dm.getOrigin().x() * noise_tra;
+  double y = dm.getOrigin().y() * noise_tra;
+  double z = 0.0;
+
+  // std::cerr << "[noise X] " << x << " = " << dm.getOrigin().x() << " * " << noise_tra << std::endl;
+  // std::cerr << "[noise Y] " << y << " = " << dm.getOrigin().y() << " * " << noise_tra << std::endl;
+
+  returned_noise.setOrigin(tf2::Vector3(x, y, z));
 
   double roll, pitch, yaw;
   tf2::Matrix3x3(dm.getRotation()).getRPY(roll, pitch, yaw);
@@ -115,7 +130,7 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
 }
 
 void
-ParticlesDistribution::publish_particles()
+ParticlesDistribution::publish_particles(const std_msgs::ColorRGBA & color) const
 {
   if (pub_particles_.getNumSubscribers() == 0)
   {
@@ -151,10 +166,7 @@ ParticlesDistribution::publish_particles()
     pose_msg.scale.y = 0.01;
     pose_msg.scale.z = 0.01;
 
-    pose_msg.color.r = (1.0 - particle.prob);
-    pose_msg.color.g = particle.prob;
-    pose_msg.color.b = 0.0;
-    pose_msg.color.a = 1.0;
+    pose_msg.color = color;
 
     msg.markers.push_back(pose_msg);
   }
@@ -165,131 +177,120 @@ ParticlesDistribution::publish_particles()
 void
 ParticlesDistribution::correct_once(const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap)
 {
-  //std::cerr << "====================================" << std::endl;
-
-  // if (!bf2laser_init_) {
-  //   bf2laser_init_ = true;
-    std::string error;
-    if (buffer_.canTransform(
-      scan.header.frame_id, "base_footprint", scan.header.stamp), ros::Duration(0.1), &error)
-    {
-      //std::cerr << ")))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))" <<  scan.header.frame_id << std::endl;
-      auto bf2laser_msg = buffer_.lookupTransform(
-        "base_footprint", scan.header.frame_id, scan.header.stamp);
-      tf2::fromMsg(bf2laser_msg, bf2laser_);
-
-    } else {
-      ROS_WARN("Timeout while waiting TF %s -> base_footprint [%s]",
-        scan.header.frame_id.c_str(), error.c_str());
-      return;
-    }
-  // }
-
-  /*for (int i = 0; i < NUM_PART; i++)
+  std::string error;
+  if (buffer_.canTransform(
+    scan.header.frame_id, "base_footprint", scan.header.stamp), ros::Duration(0.1), &error)
   {
-    const auto & p = particles_[i];
-    double roll, pitch, yaw;
+    auto bf2laser_msg = buffer_.lookupTransform(
+      "base_footprint", scan.header.frame_id, scan.header.stamp);
+    tf2::fromMsg(bf2laser_msg, bf2laser_);
+  } else {
+    ROS_WARN("Timeout while waiting TF %s -> base_footprint [%s]",
+      scan.header.frame_id.c_str(), error.c_str());
+    return;
+  }
 
-    tf2::Matrix3x3(p.pose.getRotation()).getRPY(roll, pitch, yaw);
-    //std::cerr << "-> [" << i <<"] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << 
-    //  ", " << yaw << ") => " << p.prob << std::endl;
-  }*/
-
-  for (int j = 0; j < scan.ranges.size(); j++) {
-
-    if (std::isinf(scan.ranges[j]) || std::isnan(scan.ranges[j]) || scan.ranges[j] < scan.range_min || scan.ranges[j] > scan.range_max) {
-      continue;
-    }
-
-    tf2::Transform laser2point = get_random_read_with_noise(scan, j, 0.01);
+  for (int j = 0; j < scan.ranges.size(); j++)
+  {
+    if (std::isnan(scan.ranges[j])) continue;
+    
+    tf2::Transform laser2point;
+    bool is_inf = std::isinf(scan.ranges[j]);
+    if (!is_inf) laser2point = get_tranform_to_read(scan, j);
+    tf2::Transform laser2point_uvectortf = get_tranform_to_read_vector(scan, j);
 
     for (int i = 0; i < NUM_PART; i++)
     {
       auto & p = particles_[i];
 
-      auto map2point = p.pose * bf2laser_ * laser2point;
+      double calculated_distance = get_distance_to_obstacle(
+        p.pose, bf2laser_, laser2point_uvectortf, scan, costmap);
+      double measured_distance = (bf2laser_ * laser2point).getOrigin().length();
 
-      /*if (i == 0) {
-        {
-          double roll, pitch, yaw;
-          tf2::Matrix3x3(p.pose.getRotation()).getRPY(roll, pitch, yaw);
-          std::cerr << "=== p.pose [" << i <<"] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << 
-            ", " << yaw << ")" << std::endl;
-        }
-        {
-          double roll, pitch, yaw;
-          tf2::Matrix3x3(bf2laser_.getRotation()).getRPY(roll, pitch, yaw);
-          std::cerr << "=== bf2laser_ [" << i <<"] (" << bf2laser_.getOrigin().x() << ", " << bf2laser_.getOrigin().y() << 
-            ", " << yaw << ")" << std::endl;
-        }        
-        {
-          double roll, pitch, yaw;
-          tf2::Matrix3x3(laser2point.getRotation()).getRPY(roll, pitch, yaw);
-          std::cerr << "=== laser2point [" << i <<"] (" << laser2point.getOrigin().x() << ", " << laser2point.getOrigin().y() << 
-            ", " << yaw << ")" << std::endl;
-        }      
-        {
-          double roll, pitch, yaw;
-          tf2::Matrix3x3(map2point.getRotation()).getRPY(roll, pitch, yaw);
-          std::cerr << "=== map2point [" << i <<"] (" << map2point.getOrigin().x() << ", " << map2point.getOrigin().y() << 
-            ", " << yaw << ")" ;
-        }    
-
-      }*/
-
-      unsigned int mx, my;
-      if (costmap.worldToMap(map2point.getOrigin().x(), map2point.getOrigin().y(), mx, my)) {
-        auto cost = costmap.getCost(mx, my);
-
-        if (cost == costmap_2d::LETHAL_OBSTACLE) {
-          // std::cerr << "^"<< std::endl;
-          p.prob = std::clamp(p.prob + (1.0 / static_cast<double>(scan.ranges.size())), 0.0, 1.0);
-        } else {
-          // std::cerr << "v"<< std::endl;
-          p.prob = std::clamp(p.prob - (1.0 / static_cast<double>(scan.ranges.size())), 0.0, 1.0);
-        }
-      }
+      
     }
   }
-
-
-  /*for (int i = 0; i < NUM_PART; i++)
-  {
-    const auto & p = particles_[i];
-    double roll, pitch, yaw;
-
-    tf2::Matrix3x3(p.pose.getRotation()).getRPY(roll, pitch, yaw);
-    std::cerr << "<- [" << i <<"] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << 
-      ", " << yaw << ") => " << p.prob << std::endl;
-  }*/
 
 
 }
 
 tf2::Transform 
-ParticlesDistribution::get_random_read_with_noise(const sensor_msgs::LaserScan & scan, int index, double noise)
+ParticlesDistribution::get_tranform_to_read(const sensor_msgs::LaserScan & scan, int index)
 {
-  // std::uniform_int_distribution<int> selector(0, scan.ranges.size() - 1);
-  std::normal_distribution<double> dist_noise(0.0, noise);
-  
-  // int index = selector(generator_);
-
   double dist = scan.ranges[index];
-  double dist_with_noise = dist;//  + dist_noise(generator_);
-
   double angle = scan.angle_min + static_cast<double>(index) * scan.angle_increment;
 
   tf2::Transform ret;
   
-  double x = dist_with_noise * cos(angle);
-  double y = dist_with_noise * sin(angle);
-
-  // std::cerr << "******* a[" << angle << "] d["<< dist_with_noise << "] -> (" << x << ", " << y << ")" << std::endl;
+  double x = dist * cos(angle);
+  double y = dist * sin(angle);
 
   ret.setOrigin({x, y, 0.0});
   ret.setRotation({0.0, 0.0, 0.0, 1.0});
 
   return ret;
+}
+
+tf2::Transform 
+ParticlesDistribution::get_tranform_to_read_vector(const sensor_msgs::LaserScan & scan, int index, double module)
+{
+  double dist = module;
+  double angle = scan.angle_min + static_cast<double>(index) * scan.angle_increment;
+
+  tf2::Transform ret;
+  
+  double x = dist * cos(angle);
+  double y = dist * sin(angle);
+
+  ret.setOrigin({x, y, 0.0});
+  ret.setRotation({0.0, 0.0, 0.0, 1.0});
+
+  return ret;
+}
+
+double
+ParticlesDistribution::get_distance_to_obstacle(
+  const tf2::Transform & map2bf, const tf2::Transform & bf2laser,  const tf2::Transform & uvector,
+  const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap)
+{
+  // std::cerr << "==================================================" << std::endl;
+  bool obstacle_found = false;
+  double dist = scan.range_min;
+
+  tf2::Transform laser2point = uvector;
+  tf2::Transform map2laser = map2bf * bf2laser;
+
+  while (dist < scan.range_max && !obstacle_found)
+  {
+    laser2point.setOrigin(uvector.getOrigin() * dist);
+
+    tf2::Transform map2point = map2laser * laser2point;
+
+    unsigned int mx, my;
+    if (costmap.worldToMap(map2point.getOrigin().x(), map2point.getOrigin().y(), mx, my)) {
+      auto cost = costmap.getCost(mx, my);
+      obstacle_found = costmap.getCost(mx, my) == costmap_2d::LETHAL_OBSTACLE;
+
+      // std::cerr << "(" << map2point.getOrigin().x() << ", " << map2point.getOrigin().y() << ")[" << 
+      //   static_cast<int>(costmap.getCost(mx, my)) << "] ";
+
+    } else {
+      // std::cerr << "INFINITE!! " << std::endl;
+      return std::numeric_limits<float>::infinity();
+    }
+    if (!obstacle_found) dist = dist + costmap.getResolution();
+  }
+
+  if (obstacle_found)
+  {
+    // std::cerr << "DIST =  " << dist << std::endl;
+    return dist;
+  }
+  else
+  {
+    // std::cerr << "INFINITE " << std::endl;
+    return std::numeric_limits<float>::infinity();
+  }
 }
 
 void
@@ -312,9 +313,9 @@ ParticlesDistribution::reseed()
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
   
   std::normal_distribution<double> selector(0, number_winners);
-  std::normal_distribution<double> noise_x(0, 0.05);
-  std::normal_distribution<double> noise_y(0, 0.05);
-  std::normal_distribution<double> noise_t(0, 0.03);
+  std::normal_distribution<double> noise_x(0, 0.02);
+  std::normal_distribution<double> noise_y(0, 0.02);
+  std::normal_distribution<double> noise_t(0, 0.01);
 
   for (int i = 0; i < number_losers; i++)
   {
@@ -366,6 +367,106 @@ ParticlesDistribution::reseed()
       p.prob = p.prob * norm_factor;
     });
   */
+}
+
+std_msgs::ColorRGBA 
+getColor(Color color_id, double alpha)
+{
+  std_msgs::ColorRGBA color;
+
+	switch (color_id) {
+		case RED:
+			color.r = 0.8;
+			color.g = 0.1;
+			color.b = 0.1;
+			color.a = alpha;
+			break;
+		case GREEN:
+			color.r = 0.1;
+			color.g = 0.8;
+			color.b = 0.1;
+			color.a = alpha;
+			break;
+		case BLUE:
+			color.r = 0.1;
+			color.g = 0.1;
+			color.b = 0.8;
+			color.a = alpha;
+			break;
+		case WHITE:
+			color.r = 1.0;
+			color.g = 1.0;
+			color.b = 1.0;
+			color.a = alpha;
+			break;
+		case GREY:
+			color.r = 0.9;
+			color.g = 0.9;
+			color.b = 0.9;
+			color.a = alpha;
+			break;
+		case DARK_GREY:
+			color.r = 0.6;
+			color.g = 0.6;
+			color.b = 0.6;
+			color.a = alpha;
+			break;
+		case BLACK:
+			color.r = 0.0;
+			color.g = 0.0;
+			color.b = 0.0;
+			color.a = alpha;
+			break;
+		case YELLOW:
+			color.r = 1.0;
+			color.g = 1.0;
+			color.b = 0.0;
+			color.a = alpha;
+			break;
+		case ORANGE:
+			color.r = 1.0;
+			color.g = 0.5;
+			color.b = 0.0;
+			color.a = alpha;
+			break;
+		case BROWN:
+			color.r = 0.597;
+			color.g = 0.296;
+			color.b = 0.0;
+			color.a = alpha;
+			break;
+		case PINK:
+			color.r = 1.0;
+			color.g = 0.4;
+			color.b = 1;
+			color.a = alpha;
+			break;
+		case LIME_GREEN:
+			color.r = 0.6;
+			color.g = 1.0;
+			color.b = 0.2;
+			color.a = alpha;
+			break;
+		case PURPLE:
+			color.r = 0.597;
+			color.g = 0.0;
+			color.b = 0.597;
+			color.a = alpha;
+			break;
+		case CYAN:
+			color.r = 0.0;
+			color.g = 1.0;
+			color.b = 1.0;
+			color.a = alpha;
+			break;
+		case MAGENTA:
+			color.r = 1.0;
+			color.g = 0.0;
+			color.b = 1.0;
+			color.a = alpha;
+			break;
+	}
+	return color;
 }
 
 }  // namespace aamcl

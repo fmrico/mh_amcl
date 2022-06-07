@@ -48,7 +48,7 @@ AAMCL::AAMCL()
 
   predict_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::predict, this);
   correct_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::correct, this);
-  reseed_timer_ = nh_.createTimer(ros::Duration(1), &AAMCL::reseed, this);
+  reseed_timer_ = nh_.createTimer(ros::Duration(3), &AAMCL::reseed, this);
   publish_particles_timer_ = nh_.createTimer(ros::Duration(1), &AAMCL::publish_particles, this);
 
   init();
@@ -56,7 +56,12 @@ AAMCL::AAMCL()
 
 void AAMCL::init()
 {
-  particles_.init();
+
+  particles_population_.push_back(std::make_shared<ParticlesDistribution>());
+  for (auto & particles : particles_population_)
+  {
+    particles->init();
+  }
 }
 
 void
@@ -65,7 +70,12 @@ AAMCL::publish_particles(const ros::TimerEvent & event)
   auto start = ros::Time::now();
   (void)event;
 
-  particles_.publish_particles();
+  Color color = RED;
+  for (const auto & particles : particles_population_)
+  {
+    color = static_cast<Color>((color + 1) % NUM_COLORS);
+    particles->publish_particles(getColor(color));
+  }
   ROS_DEBUG_STREAM("Publish [" << (ros::Time::now() - start).toNSec() << " nsecs]");
 }
 
@@ -87,7 +97,10 @@ AAMCL::predict(const ros::TimerEvent & event)
       if (valid_prev_odom2bf_) {
         tf2::Transform bfprev2bf = odom2prevbf_.inverse() * odom2bf;
 
-        particles_.predict(bfprev2bf);
+        for (auto & particles : particles_population_)
+        {
+          particles->predict(bfprev2bf);
+        }
       }
 
       valid_prev_odom2bf_ = true;
@@ -155,7 +168,11 @@ AAMCL::correct(const ros::TimerEvent & event)
 
   if (last_laser_.ranges.empty()) return;
 
-  particles_.correct_once(last_laser_, costmap_);
+
+  for (auto & particles : particles_population_)
+  {
+    particles->correct_once(last_laser_, costmap_);
+  }
   ROS_DEBUG_STREAM("Correct [" << (ros::Time::now() - start).toNSec() << " nsecs]");
 }
 
@@ -165,7 +182,10 @@ AAMCL::reseed(const ros::TimerEvent & event)
   auto start = ros::Time::now();
   (void)event;
 
-  particles_.reseed();
+  for (auto & particles : particles_population_)
+  {
+    particles->reseed();
+  }
   ROS_DEBUG_STREAM("Reseed [" << (ros::Time::now() - start).toNSec() << " nsecs]");
 }
 
@@ -186,7 +206,10 @@ AAMCL::initpose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr 
       pose_msg->pose.pose.orientation.z,
       pose_msg->pose.pose.orientation.w});
 
-    particles_.init(pose);
+    particles_population_.clear();
+    particles_population_.push_back(std::make_shared<ParticlesDistribution>());
+
+    (*particles_population_.begin())->init(pose);
   } else {
     ROS_WARN("Not possible to init particles in frame %s", pose_msg->header.frame_id.c_str());
   }

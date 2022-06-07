@@ -29,7 +29,6 @@
 #include "tf2/LinearMath/Transform.h"
 #include "costmap_2d/static_layer.h"
 
-
 #include "aamcl/AAMCL.h"
 #include "ros/ros.h"
 
