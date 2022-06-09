@@ -65,11 +65,11 @@ protected:
 
   tf2::Transform add_noise(const tf2::Transform & dm);
   tf2::Transform get_tranform_to_read(const sensor_msgs::LaserScan & scan, int index);
-  tf2::Transform get_tranform_to_read_vector(
-    const sensor_msgs::LaserScan & scan, int index, double module = 1.0);
-  double get_distance_to_obstacle(
-    const tf2::Transform & map2bf, const tf2::Transform & bf2laser,  const tf2::Transform & uvector,
-    const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap);
+  double get_error_distance_to_obstacle(
+    const tf2::Transform & map2bf, const tf2::Transform & bf2laser,  const tf2::Transform & laser2point,
+    const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap, double o);
+  unsigned char get_cost( const tf2::Transform & transform, const costmap_2d::Costmap2D & costmap);
+  void normalize();
 
   std::random_device rd_;
   std::mt19937 generator_;

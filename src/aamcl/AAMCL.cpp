@@ -46,8 +46,8 @@ AAMCL::AAMCL()
   sub_map_ = nh_.subscribe("map", 100, &AAMCL::map_callback, this);
   sub_init_pose_ = nh_.subscribe("initialpose", 100, &AAMCL::initpose_callback, this);
 
-  predict_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::predict, this);
-  correct_timer_ = nh_.createTimer(ros::Duration(0.05), &AAMCL::correct, this);
+  predict_timer_ = nh_.createTimer(ros::Duration(0.01), &AAMCL::predict, this);
+  correct_timer_ = nh_.createTimer(ros::Duration(0.1), &AAMCL::correct, this);
   reseed_timer_ = nh_.createTimer(ros::Duration(3), &AAMCL::reseed, this);
   publish_particles_timer_ = nh_.createTimer(ros::Duration(1), &AAMCL::publish_particles, this);
 
@@ -76,7 +76,7 @@ AAMCL::publish_particles(const ros::TimerEvent & event)
     color = static_cast<Color>((color + 1) % NUM_COLORS);
     particles->publish_particles(getColor(color));
   }
-  ROS_DEBUG_STREAM("Publish [" << (ros::Time::now() - start).toNSec() << " nsecs]");
+  ROS_INFO_STREAM("Publish [" << (ros::Time::now() - start).toSec() << " secs]");
 }
 
 void
@@ -107,7 +107,7 @@ AAMCL::predict(const ros::TimerEvent & event)
       odom2prevbf_ = odom2bf;
   }
 
-  ROS_DEBUG_STREAM("Predict [" << (ros::Time::now() - start).toNSec() << " nsecs]");
+  ROS_INFO_STREAM("Predict [" << (ros::Time::now() - start).toSec() << " secs]");
 }
 
 void
@@ -162,6 +162,8 @@ AAMCL::laser_callback(const sensor_msgs::LaserScanConstPtr & lsr_msg)
 void
 AAMCL::correct(const ros::TimerEvent & event)
 { 
+  predict(event);
+
   // std::cerr << counter_++ << " ";
   auto start = ros::Time::now();
   (void)event;
@@ -173,12 +175,13 @@ AAMCL::correct(const ros::TimerEvent & event)
   {
     particles->correct_once(last_laser_, costmap_);
   }
-  ROS_DEBUG_STREAM("Correct [" << (ros::Time::now() - start).toNSec() << " nsecs]");
+  ROS_INFO_STREAM("Correct [" << (ros::Time::now() - start).toSec() << " secs]");
 }
 
 void
 AAMCL::reseed(const ros::TimerEvent & event)
 {
+  std::cerr << "===============================================" << std::endl;
   auto start = ros::Time::now();
   (void)event;
 
@@ -186,7 +189,7 @@ AAMCL::reseed(const ros::TimerEvent & event)
   {
     particles->reseed();
   }
-  ROS_DEBUG_STREAM("Reseed [" << (ros::Time::now() - start).toNSec() << " nsecs]");
+  ROS_DEBUG_STREAM("==================Reseed [" << (ros::Time::now() - start).toSec() << " secs]");
 }
 
 void 

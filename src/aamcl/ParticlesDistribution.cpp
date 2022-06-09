@@ -78,6 +78,8 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
     
     particle.pose.setRotation(q);
   }
+
+  normalize();
 }
 
 void
@@ -85,16 +87,14 @@ ParticlesDistribution::predict(const tf2::Transform & movement)
 {
   for (auto & particle : particles_)
   {
-    // const auto x1 = particle.pose.getOrigin().x();
-    // const auto y1 = particle.pose.getOrigin().y();
-    // std::cerr << "[1] " << x1 << ", " << y1 << std::endl;
-
     particle.pose =  particle.pose * movement * add_noise(movement);
-
-    // const auto x2 = particle.pose.getOrigin().x();
-    // const auto y2 = particle.pose.getOrigin().y();
-    // std::cerr << "[2] " << x2 << ", " << y2 << std::endl;
   }
+
+  // for (int i = 0; i < particles_.size(); i++)
+  // {
+  //   const Particle & p = particles_[i];
+  //   std::cerr << "Predict [" << i << "] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << ") " << p.prob << std::endl;
+  // }
 }
 
 tf2::Transform
@@ -120,7 +120,7 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
   double roll, pitch, yaw;
   tf2::Matrix3x3(dm.getRotation()).getRPY(roll, pitch, yaw);
 
-  double newyaw = yaw + noise_rot;
+  double newyaw = yaw * noise_rot;
 
   tf2::Quaternion q;
   q.setRPY(roll, pitch, newyaw);
@@ -190,28 +190,41 @@ ParticlesDistribution::correct_once(const sensor_msgs::LaserScan & scan, const c
     return;
   }
 
-  for (int j = 0; j < scan.ranges.size(); j++)
+  const double o = 0.05;
+
+  static const float inv_sqrt_2pi = 0.3989422804014327;
+  const double normal_comp_1 = inv_sqrt_2pi / o;
+
+  const int ranges2correct = scan.ranges.size() / 5;  // Esto podría ser uno de las hipótesis del paper
+  std::uniform_int_distribution<int> scan_selector(0, scan.ranges.size());
+
+
+  for (int j = 0; j < ranges2correct; j++)
   {
-    if (std::isnan(scan.ranges[j])) continue;
+    int idx = scan_selector(generator_);
+    if (std::isnan(scan.ranges[idx]) || std::isinf(scan.ranges[idx])) continue;
     
-    tf2::Transform laser2point;
-    bool is_inf = std::isinf(scan.ranges[j]);
-    if (!is_inf) laser2point = get_tranform_to_read(scan, j);
-    tf2::Transform laser2point_uvectortf = get_tranform_to_read_vector(scan, j);
+    tf2::Transform laser2point = get_tranform_to_read(scan, idx);
 
     for (int i = 0; i < NUM_PART; i++)
     {
       auto & p = particles_[i];
 
-      double calculated_distance = get_distance_to_obstacle(
-        p.pose, bf2laser_, laser2point_uvectortf, scan, costmap);
-      double measured_distance = (bf2laser_ * laser2point).getOrigin().length();
-
+      double calculated_distance = get_error_distance_to_obstacle(
+        p.pose, bf2laser_, laser2point, scan, costmap, o);
       
+      if (!std::isinf(calculated_distance)) 
+      {
+        const double a = calculated_distance / o;
+        const double normal_comp_2 = std::exp(-0.5 * a * a); 
+
+        double prob = normal_comp_1 * normal_comp_2;
+        p.prob = std::max(p.prob + prob, 0.000001);
+      }
     }
   }
 
-
+  // normalize();
 }
 
 tf2::Transform 
@@ -231,71 +244,62 @@ ParticlesDistribution::get_tranform_to_read(const sensor_msgs::LaserScan & scan,
   return ret;
 }
 
-tf2::Transform 
-ParticlesDistribution::get_tranform_to_read_vector(const sensor_msgs::LaserScan & scan, int index, double module)
+unsigned char
+ParticlesDistribution::get_cost( const tf2::Transform & transform, const costmap_2d::Costmap2D & costmap)
 {
-  double dist = module;
-  double angle = scan.angle_min + static_cast<double>(index) * scan.angle_increment;
-
-  tf2::Transform ret;
-  
-  double x = dist * cos(angle);
-  double y = dist * sin(angle);
-
-  ret.setOrigin({x, y, 0.0});
-  ret.setRotation({0.0, 0.0, 0.0, 1.0});
-
-  return ret;
-}
-
-double
-ParticlesDistribution::get_distance_to_obstacle(
-  const tf2::Transform & map2bf, const tf2::Transform & bf2laser,  const tf2::Transform & uvector,
-  const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap)
-{
-  // std::cerr << "==================================================" << std::endl;
-  bool obstacle_found = false;
-  double dist = scan.range_min;
-
-  tf2::Transform laser2point = uvector;
-  tf2::Transform map2laser = map2bf * bf2laser;
-
-  while (dist < scan.range_max && !obstacle_found)
+  unsigned int mx, my;
+  if (costmap.worldToMap(transform.getOrigin().x(), transform.getOrigin().y(), mx, my))
   {
-    laser2point.setOrigin(uvector.getOrigin() * dist);
-
-    tf2::Transform map2point = map2laser * laser2point;
-
-    unsigned int mx, my;
-    if (costmap.worldToMap(map2point.getOrigin().x(), map2point.getOrigin().y(), mx, my)) {
-      auto cost = costmap.getCost(mx, my);
-      obstacle_found = costmap.getCost(mx, my) == costmap_2d::LETHAL_OBSTACLE;
-
-      // std::cerr << "(" << map2point.getOrigin().x() << ", " << map2point.getOrigin().y() << ")[" << 
-      //   static_cast<int>(costmap.getCost(mx, my)) << "] ";
-
-    } else {
-      // std::cerr << "INFINITE!! " << std::endl;
-      return std::numeric_limits<float>::infinity();
-    }
-    if (!obstacle_found) dist = dist + costmap.getResolution();
-  }
-
-  if (obstacle_found)
-  {
-    // std::cerr << "DIST =  " << dist << std::endl;
-    return dist;
+    return costmap.getCost(mx, my);
   }
   else
   {
-    // std::cerr << "INFINITE " << std::endl;
-    return std::numeric_limits<float>::infinity();
+    return costmap_2d::NO_INFORMATION;
   }
+}
+
+double
+ParticlesDistribution::get_error_distance_to_obstacle(
+  const tf2::Transform & map2bf, const tf2::Transform & bf2laser,  const tf2::Transform & laser2point,
+  const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap, double o)
+{
+  if (std::isinf(laser2point.getOrigin().x()) || std::isnan(laser2point.getOrigin().x()))
+    return std::numeric_limits<double>::infinity();
+
+  tf2::Transform map2laser = map2bf * bf2laser;
+  tf2::Transform map2point = map2laser * laser2point;
+  tf2::Transform map2point_aux = map2point;
+  tf2::Transform uvector;
+  tf2::Vector3 unit = laser2point.getOrigin() / laser2point.getOrigin().length();
+
+  if (get_cost(map2point, costmap) == costmap_2d::LETHAL_OBSTACLE) return 0.0;
+
+  float dist = costmap.getResolution();
+  while (dist < (3.0 * o))
+  {
+    uvector.setOrigin(unit * dist);
+    // For positive
+    map2point = map2point_aux * uvector;
+    auto cost = get_cost(map2point, costmap);
+
+    if (cost == costmap_2d::LETHAL_OBSTACLE) return dist;
+
+    // For negative
+    uvector.setOrigin(uvector.getOrigin() * -1.0);
+    map2point = map2point_aux * uvector;
+    cost = get_cost(map2point, costmap);
+
+    if (cost == costmap_2d::LETHAL_OBSTACLE) return dist;
+    dist = dist + costmap.getResolution();
+  }
+
+  return std::numeric_limits<double>::infinity();
 }
 
 void
 ParticlesDistribution::reseed()
 {
+  normalize();
   // Sort particles by prob
   std::sort(particles_.begin(), particles_.end(),
    [](const Particle & a, const Particle & b) -> bool
@@ -303,8 +307,8 @@ ParticlesDistribution::reseed()
     return a.prob > b.prob; 
   });
 
-  double percentage_losers = 0.3;
-  double percentage_winners = 0.1;
+  double percentage_losers = 0.8;
+  double percentage_winners = 0.03;
 
   int number_losers = particles_.size() * percentage_losers;
   int number_no_losers = particles_.size() - number_losers;
@@ -312,17 +316,29 @@ ParticlesDistribution::reseed()
 
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
   
+  // std::cerr << "Losers = " << number_losers << std::endl;
+  // std::cerr << "Winners = " << number_winners << std::endl;
+  // std::cerr << "No losers = " << number_no_losers << std::endl;
+  // std::cerr << "New distro with  " << new_particles.size() << std::endl;
+
   std::normal_distribution<double> selector(0, number_winners);
-  std::normal_distribution<double> noise_x(0, 0.02);
-  std::normal_distribution<double> noise_y(0, 0.02);
-  std::normal_distribution<double> noise_t(0, 0.01);
+  std::normal_distribution<double> noise_x(0, 0.01);
+  std::normal_distribution<double> noise_y(0, 0.01);
+  std::normal_distribution<double> noise_t(0, 0.005);
+
+  // for (int i = 0; i < number_winners; i++)
+  // {
+  //   const Particle & p = particles_[i];
+  //   std::cerr << "[" << i << "] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << ") " << p.prob << std::endl;
+  // }
+
 
   for (int i = 0; i < number_losers; i++)
   {
     int index = std::clamp(static_cast<int>(selector(generator_)), 0, number_winners);
 
     Particle p;
-    p.prob = new_particles.back().prob;
+    p.prob = new_particles.back().prob / 2.0;
 
     auto w_pose = particles_[i].pose.getOrigin();
 
@@ -346,27 +362,25 @@ ParticlesDistribution::reseed()
   }
 
   particles_ = new_particles;
-  
-  /*
-  // Normalize the distribution ton sum 1.0
-  double sum = 0.0;
-  std::for_each(particles_.begin(), particles_.end(),
-    [&sum] (const Particle & p)
-    {
-      sum += p.prob;
-    });
-  
-  double norm_factor = 1.0;
-  if (sum > 0.0) {
-    norm_factor = 1.0 / sum;
-  }
 
-  std::for_each(particles_.begin(), particles_.end(),
-    [norm_factor] (Particle & p)
-    {
-      p.prob = p.prob * norm_factor;
-    });
-  */
+  // for (int i = 0; i < particles_.size(); i++)
+  // {
+  //   const Particle & p = particles_[i];
+  //   // std::cerr << "[" << i << "] (" << p.pose.getOrigin().x() << ", " << p.pose.getOrigin().y() << ") " << p.prob << std::endl;
+  // }
+}
+
+void
+ParticlesDistribution::normalize()
+{
+  double sum = 0.0;
+  std::for_each(particles_.begin(), particles_.end(), [&sum](const Particle & p) {sum += p.prob;});
+  
+  if (sum != 0.0)
+  {
+    std::for_each(particles_.begin(), particles_.end(), [&](Particle & p) {
+      p.prob = p.prob / sum;});
+  }
 }
 
 std_msgs::ColorRGBA 
