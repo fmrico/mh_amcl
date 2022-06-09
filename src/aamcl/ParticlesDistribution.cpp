@@ -33,7 +33,8 @@ ParticlesDistribution::ParticlesDistribution()
   buffer_(),
   listener_(buffer_)
 {
-  pub_particles_ = nh_.advertise<visualization_msgs::MarkerArray>("poses", 1000);
+  nh_.param<int>("num_particles", NUM_PART, 200);
+  pub_particles_ = nh_.advertise<visualization_msgs::MarkerArray>("poses", NUM_PART);
 }
 
 void 
@@ -53,10 +54,12 @@ void
 ParticlesDistribution::init(const tf2::Transform & pose_init)
 {
   init();
-
-  std::normal_distribution<double> noise_x(0, 0.1);
-  std::normal_distribution<double> noise_y(0, 0.1);
-  std::normal_distribution<double> noise_t(0, 0.05);
+  nh_.param<double>("noise_x", noise_x_param, 0.1);
+  nh_.param<double>("noise_x", noise_y_param, 0.1);
+  nh_.param<double>("noise_x", noise_t_param, 0.1);
+  std::normal_distribution<double> noise_x(0, noise_x_param);
+  std::normal_distribution<double> noise_y(0, noise_y_param);
+  std::normal_distribution<double> noise_t(0, noise_t_param);
 
   for (auto & particle : particles_)
   {
@@ -93,9 +96,10 @@ tf2::Transform
 ParticlesDistribution::add_noise(const tf2::Transform & dm)
 {
   tf2::Transform returned_noise;
-
-  std::normal_distribution<double> translation_noise_(0.0, 0.1);
-  std::normal_distribution<double> rotation_noise_(0.0, 0.1);
+  nh_.param<double>("translation_noise", translation_noise_param, 0.1);
+  nh_.param<double>("rotation_noise", rotation_noise_param, 0.1);
+  std::normal_distribution<double> translation_noise_(0.0, translation_noise_param);
+  std::normal_distribution<double> rotation_noise_(0.0, rotation_noise_param);
 
   double noise_tra = translation_noise_(generator_);
   double noise_rot = rotation_noise_(generator_);
@@ -200,8 +204,8 @@ ParticlesDistribution::correct_once(const sensor_msgs::LaserScan & scan, const c
     if (std::isinf(scan.ranges[j]) || std::isnan(scan.ranges[j]) || scan.ranges[j] < scan.range_min || scan.ranges[j] > scan.range_max) {
       continue;
     }
-
-    tf2::Transform laser2point = get_random_read_with_noise(scan, j, 0.01);
+    nh_.param<double>("random_read_noise", random_read_noise_param, 0.01);    
+    tf2::Transform laser2point = get_random_read_with_noise(scan, j, random_read_noise_param);
 
     for (int i = 0; i < NUM_PART; i++)
     {
@@ -301,9 +305,8 @@ ParticlesDistribution::reseed()
   { 
     return a.prob > b.prob; 
   });
-
-  double percentage_losers = 0.3;
-  double percentage_winners = 0.1;
+  nh_.param<double>("loser_percent", percentage_losers, 0.3);
+   nh_.param<double>("winner_percent", percentage_winners, 0.1); 
 
   int number_losers = particles_.size() * percentage_losers;
   int number_no_losers = particles_.size() - number_losers;
@@ -312,9 +315,12 @@ ParticlesDistribution::reseed()
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
   
   std::normal_distribution<double> selector(0, number_winners);
-  std::normal_distribution<double> noise_x(0, 0.05);
-  std::normal_distribution<double> noise_y(0, 0.05);
-  std::normal_distribution<double> noise_t(0, 0.03);
+  nh_.param<double>("noise_x", noise_x_param, 0.1); //estos valores no se si hay que poner los mismos que en el correct, o habría que cambiarlos, estaban cambiados pero los he modificado para igualarlos.
+  nh_.param<double>("noise_y", noise_y_param, 0.1);
+  nh_.param<double>("noise_x", noise_t_param, 0.05);
+  std::normal_distribution<double> noise_x(0, noise_x_param);
+  std::normal_distribution<double> noise_y(0, noise_y_param);
+  std::normal_distribution<double> noise_t(0, noise_t_param);
 
   for (int i = 0; i < number_losers; i++)
   {

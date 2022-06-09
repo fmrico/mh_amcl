@@ -60,7 +60,9 @@ protected:
   
   std::default_random_engine generator_;
 
-  static const int NUM_PART = 200;
+  int NUM_PART;// = 200; Cambiado a parámetro
+  double noise_x_param, noise_y_param, noise_t_param, translation_noise_param, rotation_noise_param,
+  random_read_noise_param, percentage_losers, percentage_winners;
   std::vector<Particle> particles_;
 
   tf2_ros::Buffer buffer_;
