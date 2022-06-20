@@ -61,7 +61,7 @@ private:
   ros::Timer publish_particles_timer_;
 
 
-  ParticlesDistribution particles_;
+  std::list<std::shared_ptr<ParticlesDistribution>> particles_population_;
 
   tf2_ros::Buffer buffer_;
   tf2_ros::TransformListener listener_;

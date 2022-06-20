@@ -24,6 +24,7 @@
 
 #include "geometry_msgs/TransformStamped.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
+#include "std_msgs/ColorRGBA.h"
 
 #include "costmap_2d/costmap_2d.h"
 
@@ -38,6 +39,13 @@ typedef struct
   double prob;
 } Particle;
 
+typedef enum TColor {
+  RED, GREEN, BLUE, WHITE, GREY, DARK_GREY, BLACK, YELLOW, ORANGE, BROWN, PINK, 
+  LIME_GREEN, PURPLE, CYAN, MAGENTA, NUM_COLORS} Color;
+
+std_msgs::ColorRGBA 
+getColor(Color color_id, double alpha = 1.0);
+
 class ParticlesDistribution
 {
 public:
@@ -49,16 +57,22 @@ public:
   void correct_once(const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap);
   void reseed();
 
-  void publish_particles();
+  void publish_particles(const std_msgs::ColorRGBA & color) const;
 
 protected:  
   ros::NodeHandle nh_;
   ros::Publisher pub_particles_;
 
   tf2::Transform add_noise(const tf2::Transform & dm);
-  tf2::Transform get_random_read_with_noise(const sensor_msgs::LaserScan & scan, int index, double noise);
-  
-  std::default_random_engine generator_;
+  tf2::Transform get_tranform_to_read(const sensor_msgs::LaserScan & scan, int index);
+  double get_error_distance_to_obstacle(
+    const tf2::Transform & map2bf, const tf2::Transform & bf2laser,  const tf2::Transform & laser2point,
+    const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap, double o);
+  unsigned char get_cost( const tf2::Transform & transform, const costmap_2d::Costmap2D & costmap);
+  void normalize();
+
+  std::random_device rd_;
+  std::mt19937 generator_;
 
   int NUM_PART;// = 200; Cambiado a parámetro
   double noise_x_param, noise_y_param, noise_t_param, translation_noise_param, rotation_noise_param,
