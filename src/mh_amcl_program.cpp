@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "aamcl/AAMCL.h"
+#include "mh_amcl/MH_AMCL.hpp"
 
-#include "ros/ros.h"
+#include "rclcpp/rclcpp.hpp"
 
-int main(int argc, char **argv)
+int main(int argc, char ** argv)
 {
-  ros::init(argc, argv, "aamcl_node");
+  rclcpp::init(argc, argv);
 
-  aamcl::AAMCL amcl;
-  ros::spin();
+  auto mh_amcl = std::make_shared<mh_amcl::MH_AMCL_Node>();
+  rclcpp::spin(mh_amcl->get_node_base_interface());
+
+  rclcpp::shutdown();
 
   return 0;
 }

@@ -12,36 +12,49 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include <limits>
 
-#include "aamcl/ParticlesDistribution.h"
-#include "costmap_2d/cost_values.h"
+#include "gtest/gtest.h"
+
+#include "mh_amcl/ParticlesDistribution.hpp"
+#include "nav2_costmap_2d/cost_values.hpp"
 #include "tf2_ros/static_transform_broadcaster.h"
+#include "sensor_msgs/msg/laser_scan.hpp"
+#include "lifecycle_msgs/msg/state.hpp"
 
-#include <gtest/gtest.h>
+#include "nav2_costmap_2d/costmap_2d.hpp"
 
-class ParticlesDistributionTest: public aamcl::ParticlesDistribution
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_lifecycle/lifecycle_node.hpp"
+
+
+class ParticlesDistributionTest : public mh_amcl::ParticlesDistribution
 {
 public:
-  ParticlesDistributionTest() : ParticlesDistribution() {}
+  ParticlesDistributionTest()
+  : ParticlesDistribution(rclcpp_lifecycle::LifecycleNode::make_shared("test_node")) {}
 
   int get_num_particles() {return particles_.size();}
 
-  std::vector<aamcl::Particle> & get_particles() {return particles_;}
-  tf2::Transform get_tranform_to_read_test(const sensor_msgs::LaserScan & scan, int index)
+  rclcpp_lifecycle::LifecycleNode::SharedPtr get_parent() {return parent_node_;}
+  std::vector<mh_amcl::Particle> & get_particles() {return particles_;}
+  tf2::Transform get_tranform_to_read_test(const sensor_msgs::msg::LaserScan & scan, int index)
   {
     return get_tranform_to_read(scan, index);
   }
 
   double get_error_distance_to_obstacle_test(
-    const tf2::Transform & map2bf, const tf2::Transform & bf2laser,  const tf2::Transform & laser2point,
-    const sensor_msgs::LaserScan & scan, const costmap_2d::Costmap2D & costmap, double o)
+    const tf2::Transform & map2bf, const tf2::Transform & bf2laser,
+    const tf2::Transform & laser2point, const sensor_msgs::msg::LaserScan & scan,
+    const nav2_costmap_2d::Costmap2D & costmap, double o)
   {
     return get_error_distance_to_obstacle(map2bf, bf2laser, laser2point, scan, costmap, o);
   }
 
   void normalize_test() {normalize();}
-  unsigned char get_cost_test( const tf2::Transform & transform, const costmap_2d::Costmap2D & costmap)
+  unsigned char get_cost_test(
+    const tf2::Transform & transform, const nav2_costmap_2d::Costmap2D & costmap)
   {
     return get_cost(transform, costmap);
   }
@@ -49,23 +62,20 @@ public:
 
 std::tuple<double, double> get_mean_stdev(std::vector<double> & values)
 {
-  if (values.empty())
-  {
+  if (values.empty()) {
     return {0.0, 0.0};
   }
 
   double mean = 0.0;
   double stdev = 0.0;
 
-  for (const auto & value : values)
-  {
+  for (const auto & value : values) {
     mean += value;
   }
 
   mean = mean / values.size();
 
-  for (const auto & value : values)
-  {
+  for (const auto & value : values) {
     stdev += fabs(value - mean);
   }
 
@@ -78,7 +88,8 @@ std::tuple<double, double> get_mean_stdev(std::vector<double> & values)
 TEST(test1, test_init)
 {
   ParticlesDistributionTest particle_dist;
-  particle_dist.init();
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
 
   auto particles = particle_dist.get_particles();
@@ -89,9 +100,8 @@ TEST(test1, test_init)
   std::vector<double> angle_x(particles.size());
   std::vector<double> angle_y(particles.size());
   std::vector<double> angle_z(particles.size());
-  
-  for (int i = 0; i < particles.size(); i++)
-  {
+
+  for (int i = 0; i < particles.size(); i++) {
     auto pos = particles[i].pose.getOrigin();
 
     pos_x[i] = pos.x();
@@ -151,8 +161,7 @@ TEST(test1, test_init_2)
   std::vector<double> angle_y(particles.size());
   std::vector<double> angle_z(particles.size());
 
-  for (int i = 0; i < particles.size(); i++)
-  {
+  for (int i = 0; i < particles.size(); i++) {
     auto pos = particles[i].pose.getOrigin();
 
     pos_x[i] = pos.x();
@@ -188,14 +197,16 @@ TEST(test1, test_init_2)
   ASSERT_NEAR(stdev_ax, 0.0, 0.05);
   ASSERT_NEAR(mean_ay, 0.0, 0.015);
   ASSERT_NEAR(stdev_ay, 0.0, 0.05);
-  ASSERT_NEAR(mean_az,  M_PI_2, 0.15);
+  ASSERT_NEAR(mean_az, M_PI_2, 0.15);
   ASSERT_NEAR(stdev_az, 0.05, 0.02);
 }
 
 TEST(test1, test_reseed)
 {
   ParticlesDistributionTest particle_dist;
-  particle_dist.init();
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
+
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
 
   for (int i = 0; i < 1000; i++) {
@@ -208,8 +219,7 @@ TEST(test1, test_reseed)
   std::vector<double> pos_y(particles.size());
   std::vector<double> pos_z(particles.size());
 
-  for (int i = 0; i < particles.size(); i++)
-  {
+  for (int i = 0; i < particles.size(); i++) {
     auto pos = particles[i].pose.getOrigin();
 
     pos_x[i] = pos.x();
@@ -233,7 +243,8 @@ TEST(test1, test_reseed)
 TEST(test1, test_predict)
 {
   ParticlesDistributionTest particle_dist;
-  particle_dist.init();
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
 
   tf2::Transform trans;
@@ -248,8 +259,7 @@ TEST(test1, test_predict)
   std::vector<double> pos_y(particles.size());
   std::vector<double> pos_z(particles.size());
 
-  for (int i = 0; i < particles.size(); i++)
-  {
+  for (int i = 0; i < particles.size(); i++) {
     auto pos = particles[i].pose.getOrigin();
 
     pos_x[i] = pos.x();
@@ -274,9 +284,9 @@ TEST(test1, test_get_tranform_to_read)
 {
   ParticlesDistributionTest particle_dist;
 
-  sensor_msgs::LaserScan scan;
+  sensor_msgs::msg::LaserScan scan;
   scan.header.frame_id = "laser";
-  scan.header.stamp = ros::Time::now();
+  scan.header.stamp = particle_dist.get_parent()->now();
   scan.angle_min = -M_PI;
   scan.angle_max = M_PI;
   scan.angle_increment = M_PI_2;
@@ -317,36 +327,32 @@ TEST(test1, test_get_cost)
   unsigned int size_y = 400;
   double resolution = 0.01;
 
-  costmap_2d::Costmap2D costmap;
+  nav2_costmap_2d::Costmap2D costmap;
   costmap.resizeMap(size_x, size_y, resolution, -2.0, -2.0);
 
   unsigned int index = 0;
   // initialize the costmap with static data
-  for (unsigned int i = 0; i < size_y; ++i)
-  {
-    for (unsigned int j = 0; j < size_x; ++j)
-    {
-      unsigned int x , y;
+  for (unsigned int i = 0; i < size_y; ++i) {
+    for (unsigned int j = 0; j < size_x; ++j) {
+      unsigned int x, y;
       costmap.indexToCells(index, x, y);
-      costmap.setCost(x, y, costmap_2d::FREE_SPACE);
+      costmap.setCost(x, y, nav2_costmap_2d::FREE_SPACE);
       ++index;
     }
-  }  
-
-  for (double x = -1.0; x < 1.0; x = x + (resolution / 2.0))
-  {
-    unsigned int mx , my;
-    costmap.worldToMap(x, 1.0, mx, my);
-    costmap.setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
-    costmap.worldToMap(x, -0.5, mx, my);
-    costmap.setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
   }
 
-  for (double y = -0.5; y < 1.0; y = y + (resolution / 2.0))
-  {
-    unsigned int mx , my;
+  for (double x = -1.0; x < 1.0; x = x + (resolution / 2.0)) {
+    unsigned int mx, my;
+    costmap.worldToMap(x, 1.0, mx, my);
+    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap.worldToMap(x, -0.5, mx, my);
+    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+  }
+
+  for (double y = -0.5; y < 1.0; y = y + (resolution / 2.0)) {
+    unsigned int mx, my;
     costmap.worldToMap(0.75, y, mx, my);
-    costmap.setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
+    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
   // Init particles to (x=0.0, y=0.0, t=90.0)
@@ -356,72 +362,69 @@ TEST(test1, test_get_cost)
   init_rot.setRotation({0.0, 0.0, 0.707, 0.707});
   particle_dist.init(init_rot);
 
-  unsigned int mx , my;
+  unsigned int mx, my;
 
   costmap.worldToMap(0.0, 0.0, mx, my);
-  ASSERT_EQ(costmap.getCost(mx, my), costmap_2d::FREE_SPACE);  
+  ASSERT_EQ(costmap.getCost(mx, my), nav2_costmap_2d::FREE_SPACE);
   costmap.worldToMap(0.75, 0.0, mx, my);
-  ASSERT_EQ(costmap.getCost(mx, my), costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(costmap.getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
   costmap.worldToMap(0.0, -0.5, mx, my);
-  ASSERT_EQ(costmap.getCost(mx, my), costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(costmap.getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
   costmap.worldToMap(0.0, 1.0, mx, my);
-  ASSERT_EQ(costmap.getCost(mx, my), costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(costmap.getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
 
   tf2::Transform tf_test;
   tf_test.setOrigin({0.0, 0.0, 0.0});
-  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), costmap_2d::FREE_SPACE);
+  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), nav2_costmap_2d::FREE_SPACE);
   tf_test.setOrigin({0.75, 0.0, 0.0});
-  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
   tf_test.setOrigin({0.0, -0.5, 0.0});
-  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
   tf_test.setOrigin({0.0, 1.0, 0.0});
-  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
 }
 
 TEST(test1, test_get_error_distance_to_obstacle)
 {
+  auto test_node = rclcpp::Node::make_shared("test_node");
   // Costmap with an obstacle in front and left
   unsigned int size_x = 400;
   unsigned int size_y = 400;
   double resolution = 0.01;
 
-  costmap_2d::Costmap2D costmap;
+  nav2_costmap_2d::Costmap2D costmap;
   costmap.resizeMap(size_x, size_y, resolution, -2.0, -2.0);
 
   unsigned int index = 0;
   // initialize the costmap with static data
-  for (unsigned int i = 0; i < size_y; ++i)
-  {
-    for (unsigned int j = 0; j < size_x; ++j)
-    {
-      unsigned int x , y;
+  for (unsigned int i = 0; i < size_y; ++i) {
+    for (unsigned int j = 0; j < size_x; ++j) {
+      unsigned int x, y;
       costmap.indexToCells(index, x, y);
-      costmap.setCost(x, y, costmap_2d::FREE_SPACE);
+      costmap.setCost(x, y, nav2_costmap_2d::FREE_SPACE);
       ++index;
     }
-  }  
-
-  for (double x = -1.0; x < 1.0; x = x + (resolution / 2.0))
-  {
-    unsigned int mx , my;
-    costmap.worldToMap(x, 1.0, mx, my);
-    costmap.setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
-    costmap.worldToMap(x, -0.5, mx, my);
-    costmap.setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
   }
 
-  for (double y = -0.5; y < 1.0; y = y + (resolution / 2.0))
-  {
-    unsigned int mx , my;
+  for (double x = -1.0; x < 1.0; x = x + (resolution / 2.0)) {
+    unsigned int mx, my;
+    costmap.worldToMap(x, 1.0, mx, my);
+    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap.worldToMap(x, -0.5, mx, my);
+    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+  }
+
+  for (double y = -0.5; y < 1.0; y = y + (resolution / 2.0)) {
+    unsigned int mx, my;
     costmap.worldToMap(0.75, y, mx, my);
-    costmap.setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
+    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
 
   // Transform base_footprint -> laser
-  tf2_ros::StaticTransformBroadcaster tf_pub;
-  geometry_msgs::TransformStamped bf2laser;
-  bf2laser.header.stamp = ros::Time::now();
+  tf2_ros::StaticTransformBroadcaster tf_pub(test_node);
+  geometry_msgs::msg::TransformStamped bf2laser;
+  bf2laser.header.stamp = test_node->now();
   bf2laser.header.frame_id = "base_footprint";
   bf2laser.child_frame_id = "laser";
   bf2laser.transform.rotation.w = 1.0;
@@ -435,18 +438,17 @@ TEST(test1, test_get_error_distance_to_obstacle)
   particle_dist.init(init_rot);
 
   // Spin for 1 sec to receive TFs
-  ros::Rate rate(20);
-  auto start = ros::Time::now();
-  while ((ros::Time::now() - start).toSec() < 1.0)
-  {
-    ros::spinOnce();
+  rclcpp::Rate rate(20);
+  auto start = test_node->now();
+  while ((test_node->now() - start).seconds() < 1.0) {
+    rclcpp::spin_some(test_node);
     rate.sleep();
   }
 
   // Scan with an obstacle in (1, 0)
-  sensor_msgs::LaserScan scan;
+  sensor_msgs::msg::LaserScan scan;
   scan.header.frame_id = "laser";
-  scan.header.stamp = ros::Time::now();
+  scan.header.stamp = test_node->now();
   scan.range_min = 0.05;
   scan.range_max = 20.0;
   scan.angle_min = -M_PI;
@@ -474,13 +476,13 @@ TEST(test1, test_get_error_distance_to_obstacle)
     ASSERT_NEAR(laser2point.getOrigin().x(), -0.54, 0.0001);
     ASSERT_NEAR(laser2point.getOrigin().y(), 0.00, 0.0001);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(map2bf, bf2lasert,
-      laser2point, scan, costmap, 0.02);
+    double distance = particle_dist.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
 
     ASSERT_FALSE(std::isinf(distance));
     ASSERT_NEAR(distance, 0.05, 0.0001);
   }
-  
+
   {
     tf2::Transform laser2point;
     laser2point = particle_dist.get_tranform_to_read_test(scan, 1);
@@ -488,8 +490,8 @@ TEST(test1, test_get_error_distance_to_obstacle)
     ASSERT_NEAR(laser2point.getOrigin().x(), 0.0, 0.0001);
     ASSERT_NEAR(laser2point.getOrigin().y(), -0.76, 0.0001);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(map2bf, bf2lasert,
-      laser2point, scan, costmap, 0.02);
+    double distance = particle_dist.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
 
     ASSERT_FALSE(std::isinf(distance));
     ASSERT_NEAR(distance, 0.0, 0.0001);
@@ -502,8 +504,8 @@ TEST(test1, test_get_error_distance_to_obstacle)
     ASSERT_NEAR(laser2point.getOrigin().x(), 1.0, 0.0001);
     ASSERT_NEAR(laser2point.getOrigin().y(), 0.0, 0.0001);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(map2bf, bf2lasert,
-      laser2point, scan, costmap, 0.02);
+    double distance = particle_dist.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
 
     ASSERT_FALSE(std::isinf(distance));
     ASSERT_NEAR(distance, 0.0, 0.0001);
@@ -513,8 +515,8 @@ TEST(test1, test_get_error_distance_to_obstacle)
     tf2::Transform laser2point;
     laser2point = particle_dist.get_tranform_to_read_test(scan, 3);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(map2bf, bf2lasert,
-      laser2point, scan, costmap, 0.02);
+    double distance = particle_dist.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
 
     ASSERT_TRUE(std::isinf(distance));
   }
@@ -523,8 +525,8 @@ TEST(test1, test_get_error_distance_to_obstacle)
     tf2::Transform laser2point;
     laser2point = particle_dist.get_tranform_to_read_test(scan, 4);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(map2bf, bf2lasert,
-      laser2point, scan, costmap, 0.02);
+    double distance = particle_dist.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
 
     ASSERT_TRUE(std::isinf(distance));
   }
@@ -533,27 +535,32 @@ TEST(test1, test_get_error_distance_to_obstacle)
 TEST(test1, normalize)
 {
   ParticlesDistributionTest particle_dist;
-  particle_dist.init();
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
   auto & particles = particle_dist.get_particles();
 
-  std::for_each(particles.begin(), particles.end(), [&](const aamcl::Particle &p) {
-    ASSERT_NEAR(p.prob, 1.0 / particles.size(), 0.0001);
-  });
+  std::for_each(
+    particles.begin(), particles.end(), [&](const mh_amcl::Particle & p) {
+      ASSERT_NEAR(p.prob, 1.0 / particles.size(), 0.0001);
+    });
 
-  std::for_each(particles.begin(), particles.end(), [&](aamcl::Particle &p) {
-    p.prob = p.prob * 2.0;
-  });
+  std::for_each(
+    particles.begin(), particles.end(), [&](mh_amcl::Particle & p) {
+      p.prob = p.prob * 2.0;
+    });
 
-  std::for_each(particles.begin(), particles.end(), [&](const aamcl::Particle &p) {
-    ASSERT_NEAR(p.prob, 2.0 / particles.size(), 0.0001);
-  });
+  std::for_each(
+    particles.begin(), particles.end(), [&](const mh_amcl::Particle & p) {
+      ASSERT_NEAR(p.prob, 2.0 / particles.size(), 0.0001);
+    });
 
   particle_dist.normalize_test();
 
-  std::for_each(particles.begin(), particles.end(), [&](const aamcl::Particle &p) {
-    ASSERT_NEAR(p.prob, 1.0 / particles.size(), 0.0001);
-  });
+  std::for_each(
+    particles.begin(), particles.end(), [&](const mh_amcl::Particle & p) {
+      ASSERT_NEAR(p.prob, 1.0 / particles.size(), 0.0001);
+    });
 }
 
 
@@ -564,39 +571,37 @@ TEST(test1, test_correct)
   unsigned int size_y = 400;
   double resolution = 0.01;
 
-  costmap_2d::Costmap2D costmap;
+  nav2_costmap_2d::Costmap2D costmap;
   costmap.resizeMap(size_x, size_y, resolution, -2.0, -2.0);
 
   unsigned int index = 0;
   // initialize the costmap with static data
-  for (unsigned int i = 0; i < size_y; ++i)
-  {
-    for (unsigned int j = 0; j < size_x; ++j)
-    {
-      unsigned int x , y;
+  for (unsigned int i = 0; i < size_y; ++i) {
+    for (unsigned int j = 0; j < size_x; ++j) {
+      unsigned int x, y;
       costmap.indexToCells(index, x, y);
-      costmap.setCost(x, y, costmap_2d::FREE_SPACE);
+      costmap.setCost(x, y, nav2_costmap_2d::FREE_SPACE);
       ++index;
     }
-  }  
+  }
 
-  for (double x = -1.0; x < 1.0; x = x + resolution)
-  {
-    unsigned int mx , my;
+  for (double x = -1.0; x < 1.0; x = x + resolution) {
+    unsigned int mx, my;
     costmap.worldToMap(x, 1.0, mx, my);
-    costmap.setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
+    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
-  for (double y = -1.0; y < 1.0; y = y + resolution)
-  {
-    unsigned int mx , my;
+  for (double y = -1.0; y < 1.0; y = y + resolution) {
+    unsigned int mx, my;
     costmap.worldToMap(1.0, y, mx, my);
-    costmap.setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
+    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
+
+  auto test_node = rclcpp_lifecycle::LifecycleNode::make_shared("test_node");
   // Transform base_footprint -> laser
-  tf2_ros::StaticTransformBroadcaster tf_pub;
-  geometry_msgs::TransformStamped bf2laser;
-  bf2laser.header.stamp = ros::Time::now();
+  tf2_ros::StaticTransformBroadcaster tf_pub(test_node);
+  geometry_msgs::msg::TransformStamped bf2laser;
+  bf2laser.header.stamp = test_node->now();
   bf2laser.header.frame_id = "base_footprint";
   bf2laser.child_frame_id = "laser";
   bf2laser.transform.rotation.w = 1.0;
@@ -604,21 +609,22 @@ TEST(test1, test_correct)
 
   // Init particles to (x=0.0, y=0.0, t=0.0)
   ParticlesDistributionTest particle_dist;
-  particle_dist.init();
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
+
 
   // Spin for 1 sec to receive TFs
-  ros::Rate rate(20);
-  auto start = ros::Time::now();
-  while ((ros::Time::now() - start).toSec() < 1.0)
-  {
-    ros::spinOnce();
+  rclcpp::Rate rate(20);
+  auto start = test_node->now();
+  while ((test_node->now() - start).seconds() < 5.0) {
+    rclcpp::spin_some(test_node->get_node_base_interface());
     rate.sleep();
   }
 
   // Scan with an obstacle in (1, 0)
-  sensor_msgs::LaserScan scan;
+  sensor_msgs::msg::LaserScan scan;
   scan.header.frame_id = "laser";
-  scan.header.stamp = ros::Time::now();
+  scan.header.stamp = test_node->now();
   scan.range_min = 0.05;
   scan.range_max = 20.0;
   scan.angle_min = -M_PI;
@@ -635,31 +641,30 @@ TEST(test1, test_correct)
   particle_dist.correct_once(scan, costmap);
 
   auto & particles = particle_dist.get_particles();
-  // Sort particles by prob
-  std::sort(particles.begin(), particles.end(),
-   [](const aamcl::Particle & a, const aamcl::Particle & b) -> bool
-  { 
-    return a.prob > b.prob; 
-  });
 
-  for (int i = 0; i < 5; i++)
-  {
-    const aamcl::Particle & part = particles[i];
+  // Sort particles by prob
+  std::sort(
+    particles.begin(), particles.end(),
+    [](const mh_amcl::Particle & a, const mh_amcl::Particle & b) -> bool
+    {
+      return a.prob > b.prob;
+    });
+
+  for (int i = 0; i < 5; i++) {
+    const mh_amcl::Particle & part = particles[i];
 
     const double x = part.pose.getOrigin().x();
     const double y = part.pose.getOrigin().y();
-    
+
     double dist = sqrt(x * x + y * y);
     ASSERT_LE(dist, 0.05);
   }
-
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char * argv[])
 {
   testing::InitGoogleTest(&argc, argv);
-  ros::init(argc, argv, "tester");
-  // ros::NodeHandle nh;
+  rclcpp::init(argc, argv);
   return RUN_ALL_TESTS();
   return 0;
 }

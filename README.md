@@ -1,3 +1,3 @@
-[![main](https://github.com/fmrico/aamcl/actions/workflows/main.yaml/badge.svg?branch=main)](https://github.com/fmrico/aamcl/actions/workflows/main.yaml)
+[![main](https://github.com/fmrico/mh_amcl/actions/workflows/main.yaml/badge.svg?branch=main)](https://github.com/fmrico/mh_amcl/actions/workflows/main.yaml)
 
-# aamcl
+# mh_amcl

@@ -23,7 +23,7 @@ jobs:
       - name: build and test
         uses: ros-tooling/action-ros-ci@0.2.3
         with:
-          package-name: aamcl
+          package-name: mh_amcl
           import-token: ${{secrets.GITHUB_TOKEN}}
           target-ros1-distro: noetic
           vcs-repo-file-url: ""
