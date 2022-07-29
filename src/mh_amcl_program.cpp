@@ -12,18 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <gtest/gtest.h>
+#include "mh_amcl/MH_AMCL.hpp"
 
-TEST(test1, test_fake)
-{
-  ASSERT_TRUE(true);
-}
+#include "rclcpp/rclcpp.hpp"
 
-int main(int argc, char *argv[])
+int main(int argc, char ** argv)
 {
-  testing::InitGoogleTest(&argc, argv);
-  // ros::init(argc, argv, "tester");
-  // ros::NodeHandle nh;
-  return RUN_ALL_TESTS();
+  rclcpp::init(argc, argv);
+
+  auto mh_amcl = std::make_shared<mh_amcl::MH_AMCL_Node>();
+  rclcpp::spin(mh_amcl->get_node_base_interface());
+
+  rclcpp::shutdown();
+
   return 0;
 }

@@ -1,47 +1,69 @@
-cmake_minimum_required(VERSION 3.0.2)
-project(aamcl)
+cmake_minimum_required(VERSION 3.5)
+project(mh_amcl)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_BUILD_TYPE debug)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp)
+find_package(rclcpp_lifecycle)
+find_package(nav2_costmap_2d)
+find_package(sensor_msgs)
+find_package(visualization_msgs)
+find_package(tf2_geometry_msgs)
+find_package(geometry_msgs)
+find_package(tf2_ros)
+find_package(tf2)
+find_package(nav2_util)
+find_package(nav2_msgs)
 
-find_package(catkin REQUIRED COMPONENTS
-  costmap_2d
-  geometry_msgs
-  roscpp
-  roslint
+set(dependencies
+  rclcpp
+  rclcpp_lifecycle
+  rclcpp_components
+  nav2_costmap_2d
   sensor_msgs
-  tf
-  tf2
+  visualization_msgs
+  tf2_geometry_msgs
+  geometry_msgs
   tf2_ros
-)
-
-catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES aamcl
-#  CATKIN_DEPENDS costmap_2d geometry_msgs roscpp roslint sensor_msgs tf tf2 tf2_ros
-#  DEPENDS system_lib
+  tf2
+  nav2_util
+  nav2_msgs
 )
 
 include_directories(
   include
-  ${catkin_INCLUDE_DIRS}
 )
 
 add_library(${PROJECT_NAME}
-  src/${PROJECT_NAME}/AAMCL.cpp
+  src/${PROJECT_NAME}/MH_AMCL.cpp
+  src/${PROJECT_NAME}/ParticlesDistribution.cpp
 )
-add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+ament_target_dependencies(${PROJECT_NAME} ${dependencies})
 
-add_executable(${PROJECT_NAME}_node src/aamcl_node.cpp)
-add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(${PROJECT_NAME}_node
-  ${catkin_LIBRARIES}
-  ${PROJECT_NAME}
+add_executable(mh_amcl_program
+  src/mh_amcl_program.cpp
+)
+ament_target_dependencies(mh_amcl_program ${dependencies})
+target_link_libraries(mh_amcl_program ${PROJECT_NAME})
+
+install(TARGETS ${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
-roslint_cpp()
-catkin_add_gtest(test1 tests/test1.cpp)
-add_dependencies(test1 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-if(TARGET test1)
-  target_link_libraries(test1 ${catkin_LIBRARIES} ${PROJECT_NAME})
+install(TARGETS mh_amcl_program
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  add_subdirectory(tests)
 endif()
+
+ament_export_include_directories(include)
+ament_export_dependencies(${dependencies})
+
+ament_package()

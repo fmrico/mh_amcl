@@ -13,18 +13,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04]
+        os: [ubuntu-22.04]
       fail-fast: false
     steps:
-      - name: Setup ROS
-        uses: ros-tooling/setup-ros@0.2.1
+      - name: Setup ROS 2
+        uses: ros-tooling/setup-ros@0.3.3
         with:
-          required-ros-distributions: noetic
+          required-ros-distributions: humble
       - name: build and test
-        uses: ros-tooling/action-ros-ci@0.2.3
+        uses: ros-tooling/action-ros-ci@0.2.5
         with:
-          package-name: aamcl
-          import-token: ${{secrets.GITHUB_TOKEN}}
-          target-ros1-distro: noetic
-          vcs-repo-file-url: ""
-
+          package-name: mh_amcl
+            target-ros2-distro: humble
