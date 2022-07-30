@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <list>
+#include <mutex>
 
 #include "tf2_ros/transform_listener.h"
 #include "tf2/LinearMath/Transform.h"
@@ -47,13 +48,20 @@ MH_AMCL_Node::MH_AMCL_Node()
   tf_buffer_(),
   tf_listener_(tf_buffer_)
 {
+  correct_cg_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  others_cg_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+  rclcpp::SubscriptionOptions options_c, options_o;
+  options_c.callback_group = correct_cg_;
+  options_o.callback_group = others_cg_;
+
   sub_laser_ = create_subscription<sensor_msgs::msg::LaserScan>(
-    "scan", 100, std::bind(&MH_AMCL_Node::laser_callback, this, _1));
+    "scan", 100, std::bind(&MH_AMCL_Node::laser_callback, this, _1), options_c);
   sub_map_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
     "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
-    std::bind(&MH_AMCL_Node::map_callback, this, _1));
+    std::bind(&MH_AMCL_Node::map_callback, this, _1), options_o);
   sub_init_pose_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-    "initialpose", 100, std::bind(&MH_AMCL_Node::initpose_callback, this, _1));
+    "initialpose", 100, std::bind(&MH_AMCL_Node::initpose_callback, this, _1), options_o);
 }
 
 using CallbackReturnT =
@@ -79,11 +87,11 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
 CallbackReturnT
 MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
 {
-  predict_timer_ = create_wall_timer(10ms, std::bind(&MH_AMCL_Node::predict, this));
-  correct_timer_ = create_wall_timer(100ms, std::bind(&MH_AMCL_Node::correct, this));
-  reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this));
+  predict_timer_ = create_wall_timer(10ms, std::bind(&MH_AMCL_Node::predict, this), others_cg_);
+  correct_timer_ = create_wall_timer(100ms, std::bind(&MH_AMCL_Node::correct, this), correct_cg_);
+  reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this), others_cg_);
   publish_particles_timer_ = create_wall_timer(
-    1s, std::bind(&MH_AMCL_Node::publish_particles, this));
+    100ms, std::bind(&MH_AMCL_Node::publish_particles, this), others_cg_);
 
   std::list<CallbackReturnT> ret;
   for (auto & particles : particles_population_) {
@@ -145,12 +153,14 @@ MH_AMCL_Node::publish_particles()
     color = static_cast<Color>((color + 1) % NUM_COLORS);
     particles->publish_particles(getColor(color));
   }
-  RCLCPP_DEBUG_STREAM(get_logger(), "Publish [" << (now() - start).seconds() << " secs]");
+  RCLCPP_INFO_STREAM(get_logger(), "Publish [" << (now() - start).seconds() << " secs]");
 }
 
 void
 MH_AMCL_Node::predict()
 {
+  std::scoped_lock lock_c(m_others_);
+
   auto start = now();
 
   geometry_msgs::msg::TransformStamped odom2bf_msg;
@@ -173,7 +183,7 @@ MH_AMCL_Node::predict()
     odom2prevbf_ = odom2bf;
   }
 
-  RCLCPP_DEBUG_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
+  RCLCPP_INFO_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
 }
 
 void
@@ -192,7 +202,7 @@ MH_AMCL_Node::laser_callback(sensor_msgs::msg::LaserScan::UniquePtr lsr_msg)
 void
 MH_AMCL_Node::correct()
 {
-  predict();
+  std::scoped_lock lock_c(m_correct_);
 
   auto start = now();
 
@@ -203,18 +213,21 @@ MH_AMCL_Node::correct()
   for (auto & particles : particles_population_) {
     particles->correct_once(*last_laser_, *costmap_);
   }
-  RCLCPP_DEBUG_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
+  RCLCPP_INFO_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
 }
 
 void
 MH_AMCL_Node::reseed()
 {
+  std::scoped_lock lock_c(m_correct_);
+  std::scoped_lock lock_o(m_others_);
+
   auto start = now();
 
   for (auto & particles : particles_population_) {
     particles->reseed();
   }
-  RCLCPP_DEBUG_STREAM(
+  RCLCPP_INFO_STREAM(
     get_logger(), "==================Reseed [" << (now() - start).seconds() << " secs]");
 }
 
@@ -222,6 +235,9 @@ void
 MH_AMCL_Node::initpose_callback(
   const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr & pose_msg)
 {
+  std::scoped_lock lock_c(m_correct_);
+  std::scoped_lock lock_o(m_others_);
+
   if (pose_msg->header.frame_id == "map") {
     tf2::Transform pose;
     pose.setOrigin(

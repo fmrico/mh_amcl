@@ -21,7 +21,9 @@ int main(int argc, char ** argv)
   rclcpp::init(argc, argv);
 
   auto mh_amcl = std::make_shared<mh_amcl::MH_AMCL_Node>();
-  rclcpp::spin(mh_amcl->get_node_base_interface());
+  auto executor = rclcpp::executors::MultiThreadedExecutor(rclcpp::ExecutorOptions(), 2);
+  executor.add_node(mh_amcl->get_node_base_interface());
+  executor.spin();
 
   rclcpp::shutdown();
 

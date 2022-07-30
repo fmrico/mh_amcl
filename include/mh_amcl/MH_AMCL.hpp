@@ -15,6 +15,7 @@
 #ifndef MH_AMCL__MH_AMCL_HPP_
 #define MH_AMCL__MH_AMCL_HPP_
 
+#include <mutex>
 #include <vector>
 #include <list>
 #include <memory>
@@ -69,6 +70,9 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_laser_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_init_pose_;
 
+  rclcpp::CallbackGroup::SharedPtr correct_cg_;
+  rclcpp::CallbackGroup::SharedPtr others_cg_;
+
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;
   rclcpp::TimerBase::SharedPtr reseed_timer_;
@@ -90,6 +94,9 @@ private:
   void initpose_callback(
     const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr & pose_msg);
   int counter_ {0};
+
+  std::mutex m_correct_;
+  std::mutex m_others_;
 };
 
 }  // namespace mh_amcl
