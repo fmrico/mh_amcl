@@ -616,7 +616,7 @@ TEST(test1, test_correct)
   // Spin for 1 sec to receive TFs
   rclcpp::Rate rate(20);
   auto start = test_node->now();
-  while ((test_node->now() - start).seconds() < 5.0) {
+  while ((test_node->now() - start).seconds() < 1.0) {
     rclcpp::spin_some(test_node->get_node_base_interface());
     rate.sleep();
   }
@@ -659,6 +659,13 @@ TEST(test1, test_correct)
     double dist = sqrt(x * x + y * y);
     ASSERT_LE(dist, 0.05);
   }
+
+  double sum_probs = 0.0;
+  for (const auto p : particle_dist.get_particles()) {
+    sum_probs += p.prob;
+  }
+
+  ASSERT_NEAR(sum_probs, 1.0, 0.000001);
 }
 
 int main(int argc, char * argv[])

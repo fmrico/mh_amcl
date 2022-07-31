@@ -101,6 +101,21 @@ protected:
 
   tf2::Stamped<tf2::Transform> bf2laser_;
   bool bf2laser_init_ {false};
+
+  // AMCL Parameters
+  int max_particles_;
+  int min_particles_;
+  double init_pos_x_;
+  double init_pos_y_;
+  double init_pos_yaw_;
+  double init_error_x_;
+  double init_error_y_;
+  double init_error_yaw_;
+  double translation_noise_;
+  double rotation_noise_;
+  double distance_perception_error_;
+  double reseed_percentage_losers_;
+  double reseed_percentage_winners_;
 };
 
 }  // namespace mh_amcl

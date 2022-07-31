@@ -70,6 +70,7 @@ using CallbackReturnT =
 CallbackReturnT
 MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
 {
+  RCLCPP_INFO(get_logger(), "Configuring...");
   particles_population_.push_back(std::make_shared<ParticlesDistribution>(shared_from_this()));
 
   std::list<CallbackReturnT> ret;
@@ -78,15 +79,19 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
   }
 
   if (std::count(ret.begin(), ret.end(), CallbackReturnT::SUCCESS) == ret.size()) {
+    RCLCPP_INFO(get_logger(), "Configured");
     return CallbackReturnT::SUCCESS;
   }
 
+  RCLCPP_ERROR(get_logger(), "Error configuring");
   return CallbackReturnT::FAILURE;
 }
 
 CallbackReturnT
 MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
 {
+  RCLCPP_INFO(get_logger(), "Activating...");
+
   predict_timer_ = create_wall_timer(10ms, std::bind(&MH_AMCL_Node::predict, this), others_cg_);
   correct_timer_ = create_wall_timer(100ms, std::bind(&MH_AMCL_Node::correct, this), correct_cg_);
   reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this), others_cg_);
@@ -99,15 +104,19 @@ MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
   }
 
   if (std::count(ret.begin(), ret.end(), CallbackReturnT::SUCCESS) == ret.size()) {
+    RCLCPP_INFO(get_logger(), "Activated");
     return CallbackReturnT::SUCCESS;
   }
 
+  RCLCPP_ERROR(get_logger(), "Error activating");
   return CallbackReturnT::FAILURE;
 }
 
 CallbackReturnT
 MH_AMCL_Node::on_deactivate(const rclcpp_lifecycle::State & state)
 {
+  RCLCPP_INFO(get_logger(), "Deactivating...");
+
   predict_timer_ = nullptr;
   correct_timer_ = nullptr;
   reseed_timer_ = nullptr;
@@ -119,9 +128,11 @@ MH_AMCL_Node::on_deactivate(const rclcpp_lifecycle::State & state)
   }
 
   if (std::count(ret.begin(), ret.end(), CallbackReturnT::SUCCESS) == ret.size()) {
+    RCLCPP_INFO(get_logger(), "Deactivated");
     return CallbackReturnT::SUCCESS;
   }
 
+  RCLCPP_ERROR(get_logger(), "Error deactivating");
   return CallbackReturnT::FAILURE;
 }
 
@@ -153,7 +164,7 @@ MH_AMCL_Node::publish_particles()
     color = static_cast<Color>((color + 1) % NUM_COLORS);
     particles->publish_particles(getColor(color));
   }
-  RCLCPP_INFO_STREAM(get_logger(), "Publish [" << (now() - start).seconds() << " secs]");
+  RCLCPP_DEBUG_STREAM(get_logger(), "Publish [" << (now() - start).seconds() << " secs]");
 }
 
 void
@@ -183,7 +194,7 @@ MH_AMCL_Node::predict()
     odom2prevbf_ = odom2bf;
   }
 
-  RCLCPP_INFO_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
+  RCLCPP_DEBUG_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
 }
 
 void
@@ -213,7 +224,7 @@ MH_AMCL_Node::correct()
   for (auto & particles : particles_population_) {
     particles->correct_once(*last_laser_, *costmap_);
   }
-  RCLCPP_INFO_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
+  RCLCPP_DEBUG_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
 }
 
 void
@@ -227,7 +238,7 @@ MH_AMCL_Node::reseed()
   for (auto & particles : particles_population_) {
     particles->reseed();
   }
-  RCLCPP_INFO_STREAM(
+  RCLCPP_DEBUG_STREAM(
     get_logger(), "==================Reseed [" << (now() - start).seconds() << " secs]");
 }
 

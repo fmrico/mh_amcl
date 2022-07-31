@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.5)
 project(mh_amcl)
 
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
+
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp)
 find_package(rclcpp_lifecycle)
@@ -54,6 +56,8 @@ install(TARGETS ${PROJECT_NAME}
 install(TARGETS mh_amcl_program
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
+
+install(DIRECTORY params DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

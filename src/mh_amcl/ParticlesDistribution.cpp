@@ -43,6 +43,46 @@ ParticlesDistribution::ParticlesDistribution(
 {
   pub_particles_ = parent_node->create_publisher<visualization_msgs::msg::MarkerArray>(
     "poses", 1000);
+  
+  if (!parent_node->has_parameter("max_particles")) {
+    parent_node->declare_parameter<int>("max_particles", 200);
+  }
+  if (!parent_node->has_parameter("min_particles")) {
+    parent_node->declare_parameter<int>("min_particles", 30);
+  }
+  if (!parent_node->has_parameter("init_pos_x")) {
+    parent_node->declare_parameter("init_pos_x", 0.0);
+  }
+  if (!parent_node->has_parameter("init_pos_y")) {
+    parent_node->declare_parameter("init_pos_y", 0.0);
+  }
+  if (!parent_node->has_parameter("init_pos_yaw")) {
+    parent_node->declare_parameter("init_pos_yaw", 0.0);
+  }
+  if (!parent_node->has_parameter("init_error_x")) {
+    parent_node->declare_parameter("init_error_x", 0.1);
+  }
+  if (!parent_node->has_parameter("init_error_y")) {
+    parent_node->declare_parameter("init_error_y", 0.1);
+  }
+  if (!parent_node->has_parameter("init_error_yaw")) {
+    parent_node->declare_parameter("init_error_yaw", 0.05);
+  }
+  if (!parent_node->has_parameter("translation_noise")) {
+    parent_node->declare_parameter("translation_noise", 0.01);
+  }
+  if (!parent_node->has_parameter("rotation_noise")) {
+    parent_node->declare_parameter("rotation_noise", 0.01);
+  }
+  if (!parent_node->has_parameter("distance_perception_error")) {
+    parent_node->declare_parameter("distance_perception_error", 0.05);
+  }
+  if (!parent_node->has_parameter("reseed_percentage_losers")) {
+    parent_node->declare_parameter("reseed_percentage_losers", 0.8);
+  }
+  if (!parent_node->has_parameter("reseed_percentage_winners")) {
+    parent_node->declare_parameter("reseed_percentage_winners", 0.03);
+  }
 }
 
 using CallbackReturnT =
@@ -51,9 +91,26 @@ using CallbackReturnT =
 CallbackReturnT
 ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
 {
+  parent_node_->get_parameter("max_particles", max_particles_);
+  parent_node_->get_parameter("min_particles", min_particles_);
+  parent_node_->get_parameter("init_pos_x", init_pos_x_);
+  parent_node_->get_parameter("init_pos_y", init_pos_y_);
+  parent_node_->get_parameter("init_pos_yaw", init_pos_yaw_);
+  parent_node_->get_parameter("init_error_x", init_error_x_);
+  parent_node_->get_parameter("init_error_y", init_error_y_);
+  parent_node_->get_parameter("init_error_yaw", init_error_yaw_);
+  parent_node_->get_parameter("translation_noise", translation_noise_);
+  parent_node_->get_parameter("rotation_noise", rotation_noise_);
+  parent_node_->get_parameter("distance_perception_error", distance_perception_error_);
+  parent_node_->get_parameter("reseed_percentage_losers", reseed_percentage_losers_);
+  parent_node_->get_parameter("reseed_percentage_winners", reseed_percentage_winners_);
+
   tf2::Transform init_pose;
-  init_pose.setOrigin(tf2::Vector3(0.0, 0.0, 0.0));
-  init_pose.setRotation(tf2::Quaternion(0.0, 0.0, 0.0, 1.0));
+  init_pose.setOrigin(tf2::Vector3(init_pos_x_, init_pos_y_, 0.0));
+
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, init_pos_yaw_);
+  init_pose.setRotation(q);
 
   init(init_pose);
 
@@ -84,14 +141,14 @@ ParticlesDistribution::on_cleanup(const rclcpp_lifecycle::State & state)
 void
 ParticlesDistribution::init(const tf2::Transform & pose_init)
 {
-  std::normal_distribution<double> noise_x(0, 0.1);
-  std::normal_distribution<double> noise_y(0, 0.1);
-  std::normal_distribution<double> noise_t(0, 0.05);
+  std::normal_distribution<double> noise_x(0, init_error_x_);
+  std::normal_distribution<double> noise_y(0, init_error_y_);
+  std::normal_distribution<double> noise_t(0, init_error_yaw_);
 
-  particles_.resize(NUM_PART);
+  particles_.resize(max_particles_);
 
   for (auto & particle : particles_) {
-    particle.prob = 1.0 / NUM_PART;
+    particle.prob = 1.0 / static_cast<double>(particles_.size());
     particle.pose = pose_init;
 
     tf2::Vector3 pose = particle.pose.getOrigin();
@@ -127,11 +184,11 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
 {
   tf2::Transform returned_noise;
 
-  std::normal_distribution<double> translation_noise_(0.0, 0.01);
-  std::normal_distribution<double> rotation_noise_(0.0, 0.01);
+  std::normal_distribution<double> translation_noise(0.0, translation_noise_);
+  std::normal_distribution<double> rotation_noise(0.0, rotation_noise_);
 
-  double noise_tra = translation_noise_(generator_);
-  double noise_rot = rotation_noise_(generator_);
+  double noise_tra = translation_noise(generator_);
+  double noise_rot = rotation_noise(generator_);
 
   double x = dm.getOrigin().x() * noise_tra;
   double y = dm.getOrigin().y() * noise_tra;
@@ -212,7 +269,7 @@ ParticlesDistribution::correct_once(
     return;
   }
 
-  const double o = 0.05;
+  const double o = distance_perception_error_;
 
   static const float inv_sqrt_2pi = 0.3989422804014327;
   const double normal_comp_1 = inv_sqrt_2pi / o;
@@ -319,8 +376,8 @@ ParticlesDistribution::reseed()
       return a.prob > b.prob;
     });
 
-  double percentage_losers = 0.8;
-  double percentage_winners = 0.03;
+  double percentage_losers = reseed_percentage_losers_;
+  double percentage_winners = reseed_percentage_winners_;
 
   int number_losers = particles_.size() * percentage_losers;
   int number_no_losers = particles_.size() - number_losers;
