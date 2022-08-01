@@ -111,6 +111,10 @@ MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
   }
 
   RCLCPP_ERROR(get_logger(), "Error activating");
+
+  // create bond connection
+  createBond();
+
   return CallbackReturnT::FAILURE;
 }
 
@@ -133,6 +137,9 @@ MH_AMCL_Node::on_deactivate(const rclcpp_lifecycle::State & state)
     RCLCPP_INFO(get_logger(), "Deactivated");
     return CallbackReturnT::SUCCESS;
   }
+
+  // destroy bond connection
+  destroyBond();
 
   RCLCPP_ERROR(get_logger(), "Error deactivating");
   return CallbackReturnT::FAILURE;

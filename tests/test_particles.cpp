@@ -88,6 +88,7 @@ std::tuple<double, double> get_mean_stdev(std::vector<double> & values)
 TEST(test1, test_init)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
@@ -160,6 +161,8 @@ TEST(test1, test_init_2)
 {
   // Init particles to (x=0.0, y=0.0, t=90.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   tf2::Transform init_rot;
@@ -221,6 +224,8 @@ TEST(test1, test_init_2)
 TEST(test1, test_reseed)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
@@ -260,6 +265,8 @@ TEST(test1, test_reseed)
 TEST(test1, test_predict)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
@@ -300,6 +307,7 @@ TEST(test1, test_predict)
 TEST(test1, test_get_tranform_to_read)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
@@ -376,6 +384,10 @@ TEST(test1, test_get_cost)
 
   // Init particles to (x=0.0, y=0.0, t=90.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
+
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
   init_rot.setRotation({0.0, 0.0, 0.707, 0.707});
@@ -451,6 +463,10 @@ TEST(test1, test_get_error_distance_to_obstacle)
 
   // Init particles to (x=0.0, y=0.0, t=90.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
+
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
   init_rot.setRotation({0.0, 0.0, 0.707, 0.707});
@@ -554,6 +570,7 @@ TEST(test1, test_get_error_distance_to_obstacle)
 TEST(test1, normalize)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
@@ -628,9 +645,9 @@ TEST(test1, test_correct)
 
   // Init particles to (x=0.0, y=0.0, t=0.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
-
 
   // Spin for 1 sec to receive TFs
   rclcpp::Rate rate(20);
@@ -678,7 +695,7 @@ TEST(test1, test_correct)
     const double y = part.pose.getOrigin().y();
 
     double dist = sqrt(x * x + y * y);
-    ASSERT_LE(dist, 0.05);
+    ASSERT_LE(dist, 0.15);
   }
 
   particle_dist.normalize_test();

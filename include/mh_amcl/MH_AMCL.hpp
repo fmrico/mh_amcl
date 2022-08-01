@@ -33,16 +33,16 @@
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
-
 #include "mh_amcl/ParticlesDistribution.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
+#include "nav2_util/lifecycle_node.hpp"
 
 namespace mh_amcl
 {
 
-class MH_AMCL_Node : public rclcpp_lifecycle::LifecycleNode
+class MH_AMCL_Node : public nav2_util::LifecycleNode
 {
 public:
   MH_AMCL_Node();
