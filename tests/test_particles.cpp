@@ -139,12 +139,29 @@ TEST(test1, test_init)
   ASSERT_NEAR(stdev_ay, 0.0, 0.05);
   ASSERT_NEAR(mean_az, 0.0, 0.015);
   ASSERT_NEAR(stdev_az, 0.05, 0.02);
+
+  auto pose = particle_dist.get_pose();
+  ASSERT_NEAR(pose.pose.pose.position.x, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.position.y, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.position.z, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.orientation.x, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.orientation.y, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.orientation.z, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.orientation.w, 1.0, 0.015);
+  ASSERT_NEAR(pose.pose.covariance[0], 0.01, 0.003);
+  ASSERT_NEAR(pose.pose.covariance[7], 0.01, 0.003);
+  ASSERT_NEAR(pose.pose.covariance[14], 0.00, 0.001);
+  ASSERT_NEAR(pose.pose.covariance[21], 0.00, 0.001);
+  ASSERT_NEAR(pose.pose.covariance[28], 0.00, 0.001);
+  ASSERT_NEAR(pose.pose.covariance[35], 0.05 * 0.05, 0.003);
 }
 
 TEST(test1, test_init_2)
 {
   // Init particles to (x=0.0, y=0.0, t=90.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
   init_rot.setRotation({0.0, 0.0, 0.707, 0.707});
@@ -275,7 +292,7 @@ TEST(test1, test_predict)
 
   ASSERT_NEAR(mean_x, 1.0, 0.05);
   ASSERT_NEAR(stdev_x, 0.1, 0.05);
-  ASSERT_NEAR(mean_y, 0.0, 0.02);
+  ASSERT_NEAR(mean_y, 0.0, 0.025);
   ASSERT_NEAR(stdev_y, 0.1, 0.1);
   ASSERT_NEAR(mean_z, 0.0, 0.0001);
 }
@@ -283,6 +300,8 @@ TEST(test1, test_predict)
 TEST(test1, test_get_tranform_to_read)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
   sensor_msgs::msg::LaserScan scan;
   scan.header.frame_id = "laser";
@@ -640,6 +659,8 @@ TEST(test1, test_correct)
 
   particle_dist.correct_once(scan, costmap);
 
+  ASSERT_GT(particle_dist.get_quality(), 0.3);
+
   auto & particles = particle_dist.get_particles();
 
   // Sort particles by prob
@@ -660,12 +681,24 @@ TEST(test1, test_correct)
     ASSERT_LE(dist, 0.05);
   }
 
+  particle_dist.normalize_test();
+
   double sum_probs = 0.0;
   for (const auto p : particle_dist.get_particles()) {
     sum_probs += p.prob;
   }
 
   ASSERT_NEAR(sum_probs, 1.0, 0.000001);
+}
+
+TEST(test1, test_statistics)
+{
+  std::vector<double> v1 = {5.0, 6.0, 7.0, 5.0, 6.0, 7.0};
+  std::vector<double> v2 = {8.0, 8.0, 8.0, 9.0, 9.0, 94.0};
+
+  ASSERT_NEAR(mh_amcl::mean(v1), 6.0, 0.001);
+  ASSERT_NEAR(mh_amcl::mean(v2), 22.667, 0.001);
+  ASSERT_NEAR(mh_amcl::covariance(v1, v2), 17, 0.001);
 }
 
 int main(int argc, char * argv[])

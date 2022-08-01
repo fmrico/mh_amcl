@@ -64,6 +64,7 @@ protected:
   void correct();
   void reseed();
   void publish_particles();
+  void publish_position();
 
 private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
@@ -77,6 +78,7 @@ private:
   rclcpp::TimerBase::SharedPtr correct_timer_;
   rclcpp::TimerBase::SharedPtr reseed_timer_;
   rclcpp::TimerBase::SharedPtr publish_particles_timer_;
+  rclcpp::TimerBase::SharedPtr publish_position_timer_;
 
   std::list<std::shared_ptr<ParticlesDistribution>> particles_population_;
 

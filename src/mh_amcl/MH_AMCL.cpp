@@ -97,6 +97,8 @@ MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
   reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this), others_cg_);
   publish_particles_timer_ = create_wall_timer(
     100ms, std::bind(&MH_AMCL_Node::publish_particles, this), others_cg_);
+  publish_position_timer_ = create_wall_timer(
+    30ms, std::bind(&MH_AMCL_Node::publish_position, this), others_cg_);
 
   std::list<CallbackReturnT> ret;
   for (auto & particles : particles_population_) {
@@ -236,7 +238,7 @@ MH_AMCL_Node::reseed()
   auto start = now();
 
   for (auto & particles : particles_population_) {
-    particles->reseed();
+    particles->reseed(); 
   }
   RCLCPP_DEBUG_STREAM(
     get_logger(), "==================Reseed [" << (now() - start).seconds() << " secs]");
@@ -278,6 +280,12 @@ MH_AMCL_Node::initpose_callback(
       get_logger(), "Not possible to init particles in frame %s",
       pose_msg->header.frame_id.c_str());
   }
+}
+
+void
+MH_AMCL_Node::publish_position()
+{
+
 }
 
 }  // namespace mh_amcl
