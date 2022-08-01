@@ -99,7 +99,6 @@ protected:
   std::random_device rd_;
   std::mt19937 generator_;
 
-  static const int NUM_PART = 200;
   std::vector<Particle> particles_;
 
   tf2::BufferCore tf_buffer_;

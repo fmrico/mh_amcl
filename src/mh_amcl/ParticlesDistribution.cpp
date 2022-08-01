@@ -34,6 +34,8 @@
 namespace mh_amcl
 {
 
+using namespace std::chrono_literals;
+
 ParticlesDistribution::ParticlesDistribution(
   rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node)
 : parent_node_(parent_node),
@@ -46,10 +48,10 @@ ParticlesDistribution::ParticlesDistribution(
     "poses", 1000);
   
   if (!parent_node->has_parameter("max_particles")) {
-    parent_node->declare_parameter<int>("max_particles", 200);
+    parent_node->declare_parameter<int>("max_particles", 200lu);
   }
   if (!parent_node->has_parameter("min_particles")) {
-    parent_node->declare_parameter<int>("min_particles", 30);
+    parent_node->declare_parameter<int>("min_particles", 30lu);
   }
   if (!parent_node->has_parameter("init_pos_x")) {
     parent_node->declare_parameter("init_pos_x", 0.0);
@@ -246,7 +248,8 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
   std::normal_distribution<double> noise_y(0, init_error_y_);
   std::normal_distribution<double> noise_t(0, init_error_yaw_);
 
-  particles_.resize(NUM_PART);
+  particles_.clear();
+  particles_.resize(min_particles_);
 
   for (auto & particle : particles_) {
     particle.prob = 1.0 / static_cast<double>(particles_.size());
@@ -331,6 +334,7 @@ ParticlesDistribution::publish_particles(const std_msgs::msg::ColorRGBA & color)
     pose_msg.id = counter++;
     pose_msg.type = visualization_msgs::msg::Marker::ARROW;
     pose_msg.type = visualization_msgs::msg::Marker::ADD;
+    pose_msg.lifetime = rclcpp::Duration(1s);
 
     const auto translation = particle.pose.getOrigin();
     const auto rotation = particle.pose.getRotation();
@@ -388,7 +392,7 @@ ParticlesDistribution::correct_once(
 
     tf2::Transform laser2point = get_tranform_to_read(scan, j);
 
-    for (int i = 0; i < NUM_PART; i++) {
+    for (int i = 0; i < particles_.size(); i++) {
       auto & p = particles_[i];
 
       double calculated_distance = get_error_distance_to_obstacle(
@@ -494,9 +498,26 @@ ParticlesDistribution::reseed()
   double percentage_losers = reseed_percentage_losers_;
   double percentage_winners = reseed_percentage_winners_;
 
-  int number_losers = particles_.size() * percentage_losers;
-  int number_no_losers = particles_.size() - number_losers;
-  int number_winners = particles_.size() * percentage_winners;
+  auto number_particles = particles_.size();
+  if (get_quality() < 0.4) {
+    number_particles = std::clamp(
+      static_cast<int>(number_particles + 20), min_particles_, max_particles_);
+    int new_particles = number_particles - particles_.size();
+    for (int i = 0; i < new_particles; i++) {
+      Particle new_p = particles_.front();
+      particles_.push_back(new_p);
+    }
+  } else if (get_quality() > 0.6) {
+    number_particles = std::clamp(
+      static_cast<int>(number_particles - 20), min_particles_, max_particles_);
+    for (int i = 0; i < particles_.size() - number_particles; i++) {
+      particles_.pop_back();
+    }
+  }
+
+  int number_losers = number_particles * percentage_losers;
+  int number_no_losers = number_particles - number_losers;
+  int number_winners = number_particles * percentage_winners;
 
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
 
