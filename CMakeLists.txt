@@ -19,7 +19,6 @@ find_package(nav2_msgs)
 set(dependencies
   rclcpp
   rclcpp_lifecycle
-  rclcpp_components
   nav2_costmap_2d
   sensor_msgs
   visualization_msgs
@@ -58,6 +57,7 @@ install(TARGETS mh_amcl_program
 )
 
 install(DIRECTORY params DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -68,6 +68,6 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
+ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(${dependencies})
-
 ament_package()

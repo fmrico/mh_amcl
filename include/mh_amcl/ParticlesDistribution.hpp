@@ -64,6 +64,7 @@ public:
   void correct_once(
     const sensor_msgs::msg::LaserScan & scan, const nav2_costmap_2d::Costmap2D & costmap);
   void reseed();
+  const std::vector<mh_amcl::Particle> & get_particles() const {return particles_;}
 
   using CallbackReturnT =
     rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
@@ -76,6 +77,7 @@ public:
   void publish_particles(const std_msgs::msg::ColorRGBA & color) const;
   geometry_msgs::msg::PoseWithCovarianceStamped get_pose() {return pose_;}
   float get_quality();
+
 protected:
   rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node_;
   rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr

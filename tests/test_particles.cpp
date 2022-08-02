@@ -38,7 +38,7 @@ public:
   int get_num_particles() {return particles_.size();}
 
   rclcpp_lifecycle::LifecycleNode::SharedPtr get_parent() {return parent_node_;}
-  std::vector<mh_amcl::Particle> & get_particles() {return particles_;}
+  std::vector<mh_amcl::Particle> & get_particles_test() {return particles_;}
   tf2::Transform get_tranform_to_read_test(const sensor_msgs::msg::LaserScan & scan, int index)
   {
     return get_tranform_to_read(scan, index);
@@ -93,7 +93,7 @@ TEST(test1, test_init)
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
 
-  auto particles = particle_dist.get_particles();
+  auto particles = particle_dist.get_particles_test();
 
   std::vector<double> pos_x(particles.size());
   std::vector<double> pos_y(particles.size());
@@ -172,7 +172,7 @@ TEST(test1, test_init_2)
 
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
 
-  auto particles = particle_dist.get_particles();
+  auto particles = particle_dist.get_particles_test();
 
   std::vector<double> pos_x(particles.size());
   std::vector<double> pos_y(particles.size());
@@ -235,7 +235,7 @@ TEST(test1, test_reseed)
     particle_dist.reseed();
   }
 
-  auto particles = particle_dist.get_particles();
+  auto particles = particle_dist.get_particles_test();
 
   std::vector<double> pos_x(particles.size());
   std::vector<double> pos_y(particles.size());
@@ -277,7 +277,7 @@ TEST(test1, test_predict)
 
   particle_dist.predict(trans);
 
-  auto particles = particle_dist.get_particles();
+  auto particles = particle_dist.get_particles_test();
 
   std::vector<double> pos_x(particles.size());
   std::vector<double> pos_y(particles.size());
@@ -574,7 +574,7 @@ TEST(test1, normalize)
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
-  auto & particles = particle_dist.get_particles();
+  auto & particles = particle_dist.get_particles_test();
 
   std::for_each(
     particles.begin(), particles.end(), [&](const mh_amcl::Particle & p) {
@@ -678,7 +678,7 @@ TEST(test1, test_correct)
 
   ASSERT_GT(particle_dist.get_quality(), 0.3);
 
-  auto & particles = particle_dist.get_particles();
+  auto & particles = particle_dist.get_particles_test();
 
   // Sort particles by prob
   std::sort(
@@ -701,7 +701,7 @@ TEST(test1, test_correct)
   particle_dist.normalize_test();
 
   double sum_probs = 0.0;
-  for (const auto p : particle_dist.get_particles()) {
+  for (const auto p : particle_dist.get_particles_test()) {
     sum_probs += p.prob;
   }
 

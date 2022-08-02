@@ -46,7 +46,7 @@ ParticlesDistribution::ParticlesDistribution(
 {
   pub_particles_ = parent_node->create_publisher<visualization_msgs::msg::MarkerArray>(
     "poses", 1000);
-  
+
   if (!parent_node->has_parameter("max_particles")) {
     parent_node->declare_parameter<int>("max_particles", 200lu);
   }
@@ -149,15 +149,15 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
 
   tf2::WithCovarianceStamped<tf2::Transform> ret;
   ret.setOrigin({mean(vpx), mean(vpx), mean(vpz)});
-  
+
   tf2::Quaternion q;
   q.setRPY(mean(vrr), mean(vrp), mean(vry));
   ret.setRotation(q);
 
-  pose.pose.pose.orientation.x =q.x();
-  pose.pose.pose.orientation.y =q.y();
-  pose.pose.pose.orientation.z =q.z();
-  pose.pose.pose.orientation.w =q.w();
+  pose.pose.pose.orientation.x = q.x();
+  pose.pose.pose.orientation.y = q.y();
+  pose.pose.pose.orientation.z = q.z();
+  pose.pose.pose.orientation.w = q.w();
 }
 
 void
@@ -197,7 +197,7 @@ double mean(const std::vector<double> & v)
   if (v.empty()) {
     return 0.0;
   }
-  return std::accumulate(v.begin(), v.end(), 0.0) / v.size();       
+  return std::accumulate(v.begin(), v.end(), 0.0) / v.size();
 }
 
 double covariance(const std::vector<double> & v1, const std::vector<double> & v2)
@@ -216,7 +216,7 @@ double covariance(const std::vector<double> & v1, const std::vector<double> & v2
     sum += (v1[i] - mv1) * (v2[i] - mv2);
   }
 
-  return sum / static_cast<double>(v1.size() - 1.0); 
+  return sum / static_cast<double>(v1.size() - 1.0);
 }
 
 
@@ -256,7 +256,7 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
     particle.pose = pose_init;
 
     tf2::Vector3 pose = particle.pose.getOrigin();
-    pose.setX(pose.getX() + noise_x(generator_));  
+    pose.setX(pose.getX() + noise_x(generator_));
     pose.setY(pose.getY() + noise_y(generator_));
     pose.setZ(0.0);
 
