@@ -42,6 +42,7 @@ typedef struct
 {
   tf2::Transform pose;
   double prob;
+  float hits;
 } Particle;
 
 typedef enum TColor
@@ -63,6 +64,7 @@ public:
   void correct_once(
     const sensor_msgs::msg::LaserScan & scan, const nav2_costmap_2d::Costmap2D & costmap);
   void reseed();
+  const std::vector<mh_amcl::Particle> & get_particles() const {return particles_;}
 
   using CallbackReturnT =
     rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
@@ -73,6 +75,8 @@ public:
   CallbackReturnT on_cleanup(const rclcpp_lifecycle::State & state);
 
   void publish_particles(const std_msgs::msg::ColorRGBA & color) const;
+  geometry_msgs::msg::PoseWithCovarianceStamped get_pose() {return pose_;}
+  float get_quality();
 
 protected:
   rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node_;
@@ -89,11 +93,14 @@ protected:
     const tf2::Transform & transform,
     const nav2_costmap_2d::Costmap2D & costmap);
   void normalize();
+  void update_pose(geometry_msgs::msg::PoseWithCovarianceStamped & pose);
+  void update_covariance(geometry_msgs::msg::PoseWithCovarianceStamped & pose);
+
+  geometry_msgs::msg::PoseWithCovarianceStamped pose_;
 
   std::random_device rd_;
   std::mt19937 generator_;
 
-  static const int NUM_PART = 200;
   std::vector<Particle> particles_;
 
   tf2::BufferCore tf_buffer_;
@@ -117,6 +124,9 @@ protected:
   double reseed_percentage_losers_;
   double reseed_percentage_winners_;
 };
+
+double mean(const std::vector<double> & v);
+double covariance(const std::vector<double> & v1, const std::vector<double> & v2);
 
 }  // namespace mh_amcl
 

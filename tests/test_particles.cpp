@@ -38,7 +38,7 @@ public:
   int get_num_particles() {return particles_.size();}
 
   rclcpp_lifecycle::LifecycleNode::SharedPtr get_parent() {return parent_node_;}
-  std::vector<mh_amcl::Particle> & get_particles() {return particles_;}
+  std::vector<mh_amcl::Particle> & get_particles_test() {return particles_;}
   tf2::Transform get_tranform_to_read_test(const sensor_msgs::msg::LaserScan & scan, int index)
   {
     return get_tranform_to_read(scan, index);
@@ -88,11 +88,12 @@ std::tuple<double, double> get_mean_stdev(std::vector<double> & values)
 TEST(test1, test_init)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
 
-  auto particles = particle_dist.get_particles();
+  auto particles = particle_dist.get_particles_test();
 
   std::vector<double> pos_x(particles.size());
   std::vector<double> pos_y(particles.size());
@@ -139,12 +140,31 @@ TEST(test1, test_init)
   ASSERT_NEAR(stdev_ay, 0.0, 0.05);
   ASSERT_NEAR(mean_az, 0.0, 0.015);
   ASSERT_NEAR(stdev_az, 0.05, 0.02);
+
+  auto pose = particle_dist.get_pose();
+  ASSERT_NEAR(pose.pose.pose.position.x, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.position.y, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.position.z, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.orientation.x, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.orientation.y, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.orientation.z, 0.0, 0.015);
+  ASSERT_NEAR(pose.pose.pose.orientation.w, 1.0, 0.015);
+  ASSERT_NEAR(pose.pose.covariance[0], 0.01, 0.003);
+  ASSERT_NEAR(pose.pose.covariance[7], 0.01, 0.003);
+  ASSERT_NEAR(pose.pose.covariance[14], 0.00, 0.001);
+  ASSERT_NEAR(pose.pose.covariance[21], 0.00, 0.001);
+  ASSERT_NEAR(pose.pose.covariance[28], 0.00, 0.001);
+  ASSERT_NEAR(pose.pose.covariance[35], 0.05 * 0.05, 0.003);
 }
 
 TEST(test1, test_init_2)
 {
   // Init particles to (x=0.0, y=0.0, t=90.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
   init_rot.setRotation({0.0, 0.0, 0.707, 0.707});
@@ -152,7 +172,7 @@ TEST(test1, test_init_2)
 
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
 
-  auto particles = particle_dist.get_particles();
+  auto particles = particle_dist.get_particles_test();
 
   std::vector<double> pos_x(particles.size());
   std::vector<double> pos_y(particles.size());
@@ -204,6 +224,8 @@ TEST(test1, test_init_2)
 TEST(test1, test_reseed)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
@@ -213,7 +235,7 @@ TEST(test1, test_reseed)
     particle_dist.reseed();
   }
 
-  auto particles = particle_dist.get_particles();
+  auto particles = particle_dist.get_particles_test();
 
   std::vector<double> pos_x(particles.size());
   std::vector<double> pos_y(particles.size());
@@ -243,6 +265,8 @@ TEST(test1, test_reseed)
 TEST(test1, test_predict)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
   ASSERT_EQ(particle_dist.get_num_particles(), 200);
@@ -253,7 +277,7 @@ TEST(test1, test_predict)
 
   particle_dist.predict(trans);
 
-  auto particles = particle_dist.get_particles();
+  auto particles = particle_dist.get_particles_test();
 
   std::vector<double> pos_x(particles.size());
   std::vector<double> pos_y(particles.size());
@@ -275,7 +299,7 @@ TEST(test1, test_predict)
 
   ASSERT_NEAR(mean_x, 1.0, 0.05);
   ASSERT_NEAR(stdev_x, 0.1, 0.05);
-  ASSERT_NEAR(mean_y, 0.0, 0.02);
+  ASSERT_NEAR(mean_y, 0.0, 0.025);
   ASSERT_NEAR(stdev_y, 0.1, 0.1);
   ASSERT_NEAR(mean_z, 0.0, 0.0001);
 }
@@ -283,6 +307,9 @@ TEST(test1, test_predict)
 TEST(test1, test_get_tranform_to_read)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
   sensor_msgs::msg::LaserScan scan;
   scan.header.frame_id = "laser";
@@ -357,6 +384,10 @@ TEST(test1, test_get_cost)
 
   // Init particles to (x=0.0, y=0.0, t=90.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
+
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
   init_rot.setRotation({0.0, 0.0, 0.707, 0.707});
@@ -432,6 +463,10 @@ TEST(test1, test_get_error_distance_to_obstacle)
 
   // Init particles to (x=0.0, y=0.0, t=90.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
+  particle_dist.on_configure(
+    rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
+
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
   init_rot.setRotation({0.0, 0.0, 0.707, 0.707});
@@ -535,10 +570,11 @@ TEST(test1, test_get_error_distance_to_obstacle)
 TEST(test1, normalize)
 {
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
-  auto & particles = particle_dist.get_particles();
+  auto & particles = particle_dist.get_particles_test();
 
   std::for_each(
     particles.begin(), particles.end(), [&](const mh_amcl::Particle & p) {
@@ -609,9 +645,9 @@ TEST(test1, test_correct)
 
   // Init particles to (x=0.0, y=0.0, t=0.0)
   ParticlesDistributionTest particle_dist;
+  particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
-
 
   // Spin for 1 sec to receive TFs
   rclcpp::Rate rate(20);
@@ -640,7 +676,9 @@ TEST(test1, test_correct)
 
   particle_dist.correct_once(scan, costmap);
 
-  auto & particles = particle_dist.get_particles();
+  ASSERT_GT(particle_dist.get_quality(), 0.3);
+
+  auto & particles = particle_dist.get_particles_test();
 
   // Sort particles by prob
   std::sort(
@@ -657,15 +695,27 @@ TEST(test1, test_correct)
     const double y = part.pose.getOrigin().y();
 
     double dist = sqrt(x * x + y * y);
-    ASSERT_LE(dist, 0.05);
+    ASSERT_LE(dist, 0.15);
   }
 
+  particle_dist.normalize_test();
+
   double sum_probs = 0.0;
-  for (const auto p : particle_dist.get_particles()) {
+  for (const auto p : particle_dist.get_particles_test()) {
     sum_probs += p.prob;
   }
 
   ASSERT_NEAR(sum_probs, 1.0, 0.000001);
+}
+
+TEST(test1, test_statistics)
+{
+  std::vector<double> v1 = {5.0, 6.0, 7.0, 5.0, 6.0, 7.0};
+  std::vector<double> v2 = {8.0, 8.0, 8.0, 9.0, 9.0, 94.0};
+
+  ASSERT_NEAR(mh_amcl::mean(v1), 6.0, 0.001);
+  ASSERT_NEAR(mh_amcl::mean(v2), 22.667, 0.001);
+  ASSERT_NEAR(mh_amcl::covariance(v1, v2), 17, 0.001);
 }
 
 int main(int argc, char * argv[])

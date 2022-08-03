@@ -1,9 +1,0 @@
-<launch>
-
-  <arg name="custom_param_file" default="$(find navigation)/param/dummy.yaml"/>
-  
-  <!-- Map server -->
-  <arg name="map_file" default="$(find navigation)/maps/GrannieAnnie.yaml"/>
-  <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
-
-</launch>

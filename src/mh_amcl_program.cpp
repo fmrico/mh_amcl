@@ -25,9 +25,9 @@ int main(int argc, char ** argv)
   auto executor = rclcpp::executors::MultiThreadedExecutor(rclcpp::ExecutorOptions(), 2);
   executor.add_node(mh_amcl->get_node_base_interface());
 
-  mh_amcl->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
-  executor.spin_some();
-  mh_amcl->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+  // mh_amcl->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+  // executor.spin_some();
+  // mh_amcl->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
 
   executor.spin();
 

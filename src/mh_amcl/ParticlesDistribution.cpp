@@ -18,6 +18,7 @@
 #include <random>
 #include <cmath>
 #include <algorithm>
+#include <numeric>
 
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
@@ -33,6 +34,8 @@
 namespace mh_amcl
 {
 
+using namespace std::chrono_literals;
+
 ParticlesDistribution::ParticlesDistribution(
   rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node)
 : parent_node_(parent_node),
@@ -43,12 +46,12 @@ ParticlesDistribution::ParticlesDistribution(
 {
   pub_particles_ = parent_node->create_publisher<visualization_msgs::msg::MarkerArray>(
     "poses", 1000);
-  
+
   if (!parent_node->has_parameter("max_particles")) {
-    parent_node->declare_parameter<int>("max_particles", 200);
+    parent_node->declare_parameter<int>("max_particles", 200lu);
   }
   if (!parent_node->has_parameter("min_particles")) {
-    parent_node->declare_parameter<int>("min_particles", 30);
+    parent_node->declare_parameter<int>("min_particles", 30lu);
   }
   if (!parent_node->has_parameter("init_pos_x")) {
     parent_node->declare_parameter("init_pos_x", 0.0);
@@ -117,6 +120,106 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   return CallbackReturnT::SUCCESS;
 }
 
+void
+ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped & pose)
+{
+  std::vector<double> vpx(particles_.size(), 0.0);
+  std::vector<double> vpy(particles_.size(), 0.0);
+  std::vector<double> vpz(particles_.size(), 0.0);
+  std::vector<double> vrr(particles_.size(), 0.0);
+  std::vector<double> vrp(particles_.size(), 0.0);
+  std::vector<double> vry(particles_.size(), 0.0);
+
+  for (int i = 0; i < particles_.size(); i++) {
+    const auto & pose = particles_[i].pose.getOrigin();
+    vpx[i] = pose.x();
+    vpy[i] = pose.y();
+    vpz[i] = pose.z();
+
+    double troll, tpitch, tyaw;
+    tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(troll, tpitch, tyaw);
+    vrr[i] = troll;
+    vrp[i] = tpitch;
+    vry[i] = tyaw;
+  }
+
+  pose.pose.pose.position.x = mean(vpx);
+  pose.pose.pose.position.y = mean(vpy);
+  pose.pose.pose.position.z = mean(vpz);
+
+  tf2::WithCovarianceStamped<tf2::Transform> ret;
+  ret.setOrigin({mean(vpx), mean(vpx), mean(vpz)});
+
+  tf2::Quaternion q;
+  q.setRPY(mean(vrr), mean(vrp), mean(vry));
+  ret.setRotation(q);
+
+  pose.pose.pose.orientation.x = q.x();
+  pose.pose.pose.orientation.y = q.y();
+  pose.pose.pose.orientation.z = q.z();
+  pose.pose.pose.orientation.w = q.w();
+}
+
+void
+ParticlesDistribution::update_covariance(geometry_msgs::msg::PoseWithCovarianceStamped & pose)
+{
+  std::vector<double> vpx(particles_.size(), 0.0);
+  std::vector<double> vpy(particles_.size(), 0.0);
+  std::vector<double> vpz(particles_.size(), 0.0);
+  std::vector<double> vrr(particles_.size(), 0.0);
+  std::vector<double> vrp(particles_.size(), 0.0);
+  std::vector<double> vry(particles_.size(), 0.0);
+
+  for (int i = 0; i < particles_.size(); i++) {
+    const auto & pose = particles_[i].pose.getOrigin();
+    vpx[i] = pose.x();
+    vpy[i] = pose.y();
+    vpz[i] = pose.z();
+
+    double troll, tpitch, tyaw;
+    tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(troll, tpitch, tyaw);
+    vrr[i] = troll;
+    vrp[i] = tpitch;
+    vry[i] = tyaw;
+  }
+
+  std::vector<std::vector<double>> vs = {vpx, vpy, vpz, vrr, vrp, vry};
+
+  for (int i = 0; i < 6; i++) {
+    for (int j = 0; j < 6; j++) {
+      pose.pose.covariance[i * 6 + j] = covariance(vs[i], vs[j]);
+    }
+  }
+}
+
+double mean(const std::vector<double> & v)
+{
+  if (v.empty()) {
+    return 0.0;
+  }
+  return std::accumulate(v.begin(), v.end(), 0.0) / v.size();
+}
+
+double covariance(const std::vector<double> & v1, const std::vector<double> & v2)
+{
+  assert(v1.size() == v2.size());
+
+  if (v1.size() < 2) {
+    return 0.0;
+  }
+
+  double mv1 = mean(v1);
+  double mv2 = mean(v2);
+  double sum = 0.0;
+
+  for (int i = 0; i < v1.size(); i++) {
+    sum += (v1[i] - mv1) * (v2[i] - mv2);
+  }
+
+  return sum / static_cast<double>(v1.size() - 1.0);
+}
+
+
 CallbackReturnT
 ParticlesDistribution::on_activate(const rclcpp_lifecycle::State & state)
 {
@@ -145,7 +248,8 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
   std::normal_distribution<double> noise_y(0, init_error_y_);
   std::normal_distribution<double> noise_t(0, init_error_yaw_);
 
-  particles_.resize(max_particles_);
+  particles_.clear();
+  particles_.resize(min_particles_);
 
   for (auto & particle : particles_) {
     particle.prob = 1.0 / static_cast<double>(particles_.size());
@@ -154,6 +258,7 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
     tf2::Vector3 pose = particle.pose.getOrigin();
     pose.setX(pose.getX() + noise_x(generator_));
     pose.setY(pose.getY() + noise_y(generator_));
+    pose.setZ(0.0);
 
     particle.pose.setOrigin(pose);
 
@@ -169,6 +274,8 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
   }
 
   normalize();
+  update_covariance(pose_);
+  update_pose(pose_);
 }
 
 void
@@ -177,6 +284,7 @@ ParticlesDistribution::predict(const tf2::Transform & movement)
   for (auto & particle : particles_) {
     particle.pose = particle.pose * movement * add_noise(movement);
   }
+  update_pose(pose_);
 }
 
 tf2::Transform
@@ -226,6 +334,7 @@ ParticlesDistribution::publish_particles(const std_msgs::msg::ColorRGBA & color)
     pose_msg.id = counter++;
     pose_msg.type = visualization_msgs::msg::Marker::ARROW;
     pose_msg.type = visualization_msgs::msg::Marker::ADD;
+    pose_msg.lifetime = rclcpp::Duration(1s);
 
     const auto translation = particle.pose.getOrigin();
     const auto rotation = particle.pose.getRotation();
@@ -274,12 +383,16 @@ ParticlesDistribution::correct_once(
   static const float inv_sqrt_2pi = 0.3989422804014327;
   const double normal_comp_1 = inv_sqrt_2pi / o;
 
+  for (auto & p : particles_) {
+    p.hits = 0.0;
+  }
+
   for (int j = 0; j < scan.ranges.size(); j++) {
     if (std::isnan(scan.ranges[j]) || std::isinf(scan.ranges[j])) {continue;}
 
     tf2::Transform laser2point = get_tranform_to_read(scan, j);
 
-    for (int i = 0; i < NUM_PART; i++) {
+    for (int i = 0; i < particles_.size(); i++) {
       auto & p = particles_[i];
 
       double calculated_distance = get_error_distance_to_obstacle(
@@ -289,10 +402,16 @@ ParticlesDistribution::correct_once(
         const double a = calculated_distance / o;
         const double normal_comp_2 = std::exp(-0.5 * a * a);
 
-        double prob = normal_comp_1 * normal_comp_2;
+        double prob = std::clamp(normal_comp_1 * normal_comp_2, 0.0, 1.0);
         p.prob = std::max(p.prob + prob, 0.000001);
+
+        p.hits += prob;
       }
     }
+  }
+
+  for (auto & p : particles_) {
+    p.hits = p.hits / static_cast<float>(scan.ranges.size());
   }
 }
 
@@ -379,9 +498,26 @@ ParticlesDistribution::reseed()
   double percentage_losers = reseed_percentage_losers_;
   double percentage_winners = reseed_percentage_winners_;
 
-  int number_losers = particles_.size() * percentage_losers;
-  int number_no_losers = particles_.size() - number_losers;
-  int number_winners = particles_.size() * percentage_winners;
+  auto number_particles = particles_.size();
+  if (get_quality() < 0.4) {
+    number_particles = std::clamp(
+      static_cast<int>(number_particles + 20), min_particles_, max_particles_);
+    int new_particles = number_particles - particles_.size();
+    for (int i = 0; i < new_particles; i++) {
+      Particle new_p = particles_.front();
+      particles_.push_back(new_p);
+    }
+  } else if (get_quality() > 0.6) {
+    number_particles = std::clamp(
+      static_cast<int>(number_particles - 20), min_particles_, max_particles_);
+    for (int i = 0; i < particles_.size() - number_particles; i++) {
+      particles_.pop_back();
+    }
+  }
+
+  int number_losers = number_particles * percentage_losers;
+  int number_no_losers = number_particles - number_losers;
+  int number_winners = number_particles * percentage_winners;
 
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
 
@@ -418,6 +554,8 @@ ParticlesDistribution::reseed()
   }
 
   particles_ = new_particles;
+
+  update_covariance(pose_);
 }
 
 void
@@ -435,6 +573,16 @@ ParticlesDistribution::normalize()
         p.prob = p.prob / sum;
       });
   }
+}
+
+float
+ParticlesDistribution::get_quality()
+{
+  float ret = 0.0;
+  for (auto & p : particles_) {
+    ret += p.hits;
+  }
+  return ret / static_cast<float>(particles_.size());
 }
 
 std_msgs::msg::ColorRGBA
