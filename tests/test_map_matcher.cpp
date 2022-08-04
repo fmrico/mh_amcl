@@ -19,14 +19,40 @@
 
 #include "rclcpp/rclcpp.hpp"
 
+using namespace std::chrono_literals;
 
+class MapMatcherTest : public mh_amcl::MapMatcher
+{
+public:
+  MapMatcherTest(const nav_msgs::msg::OccupancyGrid & map, rclcpp::Node::SharedPtr node)
+  : node_(node), MapMatcher(map)
+  {
+    pubs_.resize(NUM_LEVEL_SCALE_COSTMAP);
+    for (int i = 0; i < NUM_LEVEL_SCALE_COSTMAP; i++) {
+      pubs_[i] = node_->create_publisher<nav_msgs::msg::OccupancyGrid>(
+        "grid_" + std::to_string(i), 100);
+    }
+  }
 
+  void publish_maps()
+  {
+    for (int i = 0; i < NUM_LEVEL_SCALE_COSTMAP; i++) {
+      if (pubs_[i]->get_subscription_count() > 0) {
+        nav_msgs::msg::OccupancyGrid grid = mh_amcl::toMsg(*costmaps_[i]);
+        grid.header.frame_id = "map";
+        grid.header.stamp = node_->now();
+        pubs_[i]->publish(grid);
+      }
+    }
+  }
+
+  rclcpp::Node::SharedPtr node_;
+  std::vector<rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr> pubs_;
+};
 
 TEST(test1, test_match)
 {
   auto test_node = rclcpp::Node::make_shared("test_node");
-  mh_amcl::MapMatcher map_matcher;
-
   sensor_msgs::msg::LaserScan scan;
   nav_msgs::msg::OccupancyGrid grid;
 
@@ -41,22 +67,32 @@ TEST(test1, test_match)
     });  
 
   auto start = test_node->now();
+  rclcpp::Rate rate(100ms);
   while ((test_node->now() - start).seconds() < 5.0) {
     rclcpp::spin_some(test_node);
+    rate.sleep();
   }
 
   ASSERT_FALSE(scan.ranges.empty());
   ASSERT_FALSE(grid.data.empty());
 
-  auto scan_pc = map_matcher.PCfromScan(scan);
-  auto grid_pc = map_matcher.PCfromGrid(grid);
+  MapMatcherTest map_matcher(grid, test_node);
+  const auto & tfs = map_matcher.get_matchs(scan);
 
-  mh_amcl::state2d init;
-  init.t(0) = -2.0;
-  init.t(1) = -0.5;
-  init.theta = 0.0;
+  for (const auto & transform : tfs) {
+    const auto & x = transform.getOrigin().x();
+    const auto & y = transform.getOrigin().y();
+    double roll, pitch, yaw;
+    tf2::Matrix3x3(transform.getRotation()).getRPY(roll, pitch, yaw);
+     std::cerr << "(" << x << ", " << y << ", " << yaw << ")" << std::endl;
+  }
+  // start = test_node->now();
+  // while ((test_node->now() - start).seconds() < 30.0) {
+  //   map_matcher.publish_maps();
+  //   rclcpp::spin_some(test_node);
+  //   rate.sleep();
+  // }
 
-  mh_amcl::state2d st = map_matcher.pc_match(scan_pc, grid_pc, init);
 }
 
 int main(int argc, char * argv[])

@@ -27,129 +27,196 @@
 namespace mh_amcl
 {
 
-Eigen::Vector2d point2eigen(PointType p)
+
+MapMatcher::MapMatcher(const nav_msgs::msg::OccupancyGrid & map)
 {
-    Eigen::Vector2d pp;
-    pp(0) = p.x;
-    pp(1) = p.y;
-    return pp;
+  costmaps_.resize(NUM_LEVEL_SCALE_COSTMAP);
+  costmaps_[0] = std::make_shared<nav2_costmap_2d::Costmap2D>(map);
+
+  for (int i = 1; i < NUM_LEVEL_SCALE_COSTMAP; i++) {
+    costmaps_[i] = half_scale(costmaps_[i - 1]);
+  }
 }
 
-PointType eigen2point(Eigen::Vector2d pp)
+std::shared_ptr<nav2_costmap_2d::Costmap2D>
+MapMatcher::half_scale(std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_in)
 {
-    PointType p;
-    p.x = pp(0);
-    p.y = pp(1);
-    return p;
+  auto costmap = std::make_shared<nav2_costmap_2d::Costmap2D>(
+    costmap_in->getSizeInCellsX() / 2, costmap_in->getSizeInCellsY() / 2,
+    costmap_in->getResolution() * 2.0, costmap_in->getOriginX(),
+    costmap_in->getOriginY(), costmap_in->getDefaultValue());
+
+  for (unsigned int i = 0; i < costmap->getSizeInCellsX(); i++) {
+    for (unsigned int j = 0; j < costmap->getSizeInCellsY(); j++) {
+      unsigned int ri = i * 2;
+      unsigned int rj = j * 2;
+
+      auto cost1 = costmap_in->getCost(ri, rj);
+      auto cost2 = costmap_in->getCost(ri + 1, rj);
+      auto cost3 = costmap_in->getCost(ri, rj + 1);
+      auto cost4 = costmap_in->getCost(ri + 1, rj + 1);
+      
+      if (cost1 == nav2_costmap_2d::LETHAL_OBSTACLE ||
+        cost2  == nav2_costmap_2d::LETHAL_OBSTACLE ||
+        cost3  == nav2_costmap_2d::LETHAL_OBSTACLE ||
+        cost4  == nav2_costmap_2d::LETHAL_OBSTACLE)
+      {
+        costmap->setCost(i, j, nav2_costmap_2d::LETHAL_OBSTACLE);
+      } else if (cost1 == nav2_costmap_2d::FREE_SPACE ||
+        cost2  == nav2_costmap_2d::FREE_SPACE ||
+        cost3  == nav2_costmap_2d::FREE_SPACE ||
+        cost4  == nav2_costmap_2d::FREE_SPACE)
+      {
+        costmap->setCost(i, j, nav2_costmap_2d::FREE_SPACE);
+      } else if (cost1 == nav2_costmap_2d::NO_INFORMATION &&
+        cost2  == nav2_costmap_2d::NO_INFORMATION &&
+        cost3  == nav2_costmap_2d::NO_INFORMATION &&
+        cost4  == nav2_costmap_2d::NO_INFORMATION)
+      {
+        costmap->setCost(i, j, nav2_costmap_2d::NO_INFORMATION);
+      } else {
+        costmap->setCost(i, j, cost1);
+      }
+    }
+  }
+
+  return costmap;
 }
 
-MapMatcher::MapMatcher()
+std::list<tf2::Transform>
+MapMatcher::get_matchs(const sensor_msgs::msg::LaserScan & scan)
 {
+  std::vector<tf2::Vector3> laser_poins = laser2points(scan);
+  std::list<TransformWeighted> candidates_3 = get_matchs(2, laser_poins);
+
+  candidates_3.sort();
+  std::list<tf2::Transform> ret;
+  for (const auto & tw : candidates_3) {
+    if (tw.weight > 0.5) {
+      ret.push_back(tw.transform);
+    }
+    // const auto & x = tw.transform.getOrigin().x();
+    // const auto & y = tw.transform.getOrigin().y();
+    // double roll, pitch, yaw;
+    // tf2::Matrix3x3(tw.transform.getRotation()).getRPY(roll, pitch, yaw);
+    //  std::cerr << "(" << x << ", " << y << ", " << yaw << ") " << tw.weight << std::endl;
+  }
+
+
+  return ret;
 }
 
-pcl::PointCloud<PointType>
-MapMatcher::PCfromScan(const sensor_msgs::msg::LaserScan & scan)
+std::list<TransformWeighted>
+MapMatcher::get_matchs(int scale, const std::vector<tf2::Vector3> & scan)
 {
-  pcl::PointCloud<PointType> ret;
+  std::list<TransformWeighted> ret;
+  const auto & costmap = costmaps_[scale - 1];
 
-  ret.points.resize(scan.ranges.size());
+  for (unsigned int i = 0; i < costmap->getSizeInCellsX(); i++) {
+    for (unsigned int j = 0; j < costmap->getSizeInCellsY(); j++) {
+      auto cost = costmap->getCost(i, j);
+      if (cost == nav2_costmap_2d::FREE_SPACE) {
+        double inc_theta = (M_PI / 8.0) / static_cast<double>(scale);
+        for (double theta = 0; theta < 1.9 * M_PI; theta = theta + inc_theta) {
+          double x, y;
+          costmap->mapToWorld(i, j, x, y);
+          TransformWeighted tw;
+
+          tf2::Quaternion q;
+          q.setRPY(0.0, 0.0, theta);
+          tw.transform = tf2::Transform(q, {x, y, 0.0});
+
+          tw.weight = match(scale, *costmap, scan, tw.transform);
+          ret.push_back(tw);
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+float
+MapMatcher::match(int scale, const nav2_costmap_2d::Costmap2D & costmap,
+  const std::vector<tf2::Vector3> & scan, tf2::Transform & transform)
+{
+  int hits = 0;
+
+  for (int i = 0; i < scan.size(); i = i + scale) {
+    tf2::Vector3 test_point = transform * scan[i];
+    unsigned int gi, gj;
+    costmap.worldToMap(test_point.x(), test_point.y(), gi, gj);
+    if (gi > 0 && gj > 0 && gi < costmap.getSizeInCellsX() && gj < costmap.getSizeInCellsY() &&
+      costmap.getCost(gi, gj) == nav2_costmap_2d::LETHAL_OBSTACLE)
+    {
+      hits++;
+    }
+  }
+
+  return static_cast<float>(hits) / (static_cast<float>(scan.size()) / static_cast<float>(scale));
+}
+
+std::vector<tf2::Vector3>
+MapMatcher::laser2points(const sensor_msgs::msg::LaserScan & scan)
+{
+  std::list<tf2::Vector3> points;  
   for (auto i = 0; i < scan.ranges.size(); i++) {
+    if (std::isnan(scan.ranges[i]) || std::isinf(scan.ranges[i])) {continue;}
+    
+    tf2::Vector3 p;
     float dist = scan.ranges[i];
     float theta = scan.angle_min + i * scan.angle_increment;
-    ret.points[i].x = dist * cos(theta);
-    ret.points[i].y = dist * sin(theta);
+    p.setX(dist * cos(theta));
+    p.setY(dist * sin(theta));
+    p.setZ(0.0);
+    points.push_back(p);
   }
-  
-  ret.width = ret.points.size();
-  ret.height = 1;
-  ret.is_dense = true;
-
-  return ret;
+  return std::vector<tf2::Vector3>(points.begin(), points.end());
 }
 
-pcl::PointCloud<PointType>
-MapMatcher::PCfromGrid(const nav_msgs::msg::OccupancyGrid & grid)
+nav_msgs::msg::OccupancyGrid
+toMsg(const nav2_costmap_2d::Costmap2D & costmap)
 {
-  auto costmap = std::make_shared<nav2_costmap_2d::Costmap2D>(grid);
-  pcl::PointCloud<PointType> ret;
+  nav_msgs::msg::OccupancyGrid grid;
 
-  for (auto i = 0; i < costmap->getSizeInCellsX(); i++) {
-    for (auto j = 0; j < costmap->getSizeInCellsY(); j++) {
-      if (costmap->getCost(i, j) == nav2_costmap_2d::LETHAL_OBSTACLE) {
-        double x, y;
-        costmap->mapToWorld(i, j, x, y);
-        
-        PointType p;
-        p.x = x;
-        p.y = y;
+  grid.info.resolution = costmap.getResolution();
+  grid.info.width = costmap.getSizeInCellsX();
+  grid.info.height = costmap.getSizeInCellsY();
 
-        ret.points.push_back(p);
-      }
-    }
+  double wx, wy;
+  costmap.mapToWorld(0, 0, wx, wy);
+  grid.info.origin.position.x = wx -  costmap.getResolution() / 2;
+  grid.info.origin.position.y = wy -  costmap.getResolution() / 2;
+  grid.info.origin.position.z = 0.0;
+  grid.info.origin.orientation.w = 1.0;
+
+  grid.data.resize(grid.info.width * grid.info.height);
+
+  std::vector<char> cost_translation_table(256);
+
+  // special values:
+  cost_translation_table[0] = 0;  // NO obstacle
+  cost_translation_table[253] = 99;  // INSCRIBED obstacle
+  cost_translation_table[254] = 100;  // LETHAL obstacle
+  cost_translation_table[255] = -1;  // UNKNOWN
+
+  // regular cost values scale the range 1 to 252 (inclusive) to fit
+  // into 1 to 98 (inclusive).
+  for (int i = 1; i < 253; i++) {
+    cost_translation_table[i] = static_cast<char>(1 + (97 * (i - 1)) / 251);
   }
 
-  ret.width = ret.points.size();
-  ret.height = 1;
-  ret.is_dense = true;
+  unsigned char * data = costmap.getCharMap();
+  for (unsigned int i = 0; i < grid.data.size(); i++) {
+    grid.data[i] = cost_translation_table[data[i]];
+  }
 
-  return ret;
+  return grid;
 }
 
-state2d
-MapMatcher::pc_match(const pcl::PointCloud<PointType> & pc1, const pcl::PointCloud<PointType> & pc2, state2d state)
+bool operator<(const TransformWeighted & tw1, const TransformWeighted & tw2)
 {
-  state2d ret = state;
-
-  double pose[3] = {state.t(0), state.t(1), state.theta};
-  if (pc1.points.size() && pc2.points.size()) {
-    ceres::Problem problem;
-    
-    //solve delta with ceres constraints
-    pcl::KdTreeFLANN<PointType> kdtree;
-    kdtree.setInputCloud(pc1.makeShared());
-    int K = 2; // K nearest neighbor search
-    std::vector<int> index(K);
-    std::vector<float> distance(K);
-    
-    //1. project scan_prev to scan
-    Eigen::Matrix2d R;
-    R(0, 0) = cos(ret.theta); R(0, 1) = -sin(ret.theta);
-    R(1, 0) = sin(ret.theta); R(1, 1) = cos(ret.theta);
-    
-    Eigen::Vector2d dt = ret.t;
-    //find nearest neighur
-    for (int i = 0; i < pc2.points.size(); i++) {
-      PointType search_point = pc2.points[i];
-      //project search_point to current frame
-      PointType search_point_predict = eigen2point(R * point2eigen(search_point) + dt);
-      if (kdtree.nearestKSearch(search_point_predict, K, index, distance) == K) {
-        //add constraints
-        Eigen::Vector2d p = point2eigen(search_point);
-        Eigen::Vector2d p1 = point2eigen(pc1.points[index[0]]);
-        Eigen::Vector2d p2 = point2eigen(pc1.points[index[1]]);
-        ceres::CostFunction *cost_function = lidar_edge_error::Create(p, p1, p2);
-        problem.AddResidualBlock(cost_function, nullptr, pose);
-      }
-    }
-
-    ceres::Solver::Options options;
-    options.linear_solver_type = ceres::DENSE_QR;
-    options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 50;
-    options.num_threads = 1;
-    options.use_nonmonotonic_steps = true;
-
-    ceres::Solver::Summary summary;
-    ceres::Solve(options, &problem, &summary);
-    std::cout << summary.FullReport() << "\n";
-
-    printf("result: %lf, %lf, %lf\n", pose[0], pose[1], pose[2]);
-
-    ret.theta = pose[0];
-    ret.t(0) = pose[1];
-    ret.t(1) = pose[2];
-  }
-  return ret;
+  // To sort incremental
+  return tw1.weight > tw2.weight;
 }
 
 }  // namespace mh_amcl
