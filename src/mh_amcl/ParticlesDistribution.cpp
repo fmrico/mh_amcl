@@ -116,6 +116,7 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   init_pose.setRotation(q);
 
   init(init_pose);
+  quality_ = 0.5;
 
   return CallbackReturnT::SUCCESS;
 }
@@ -249,7 +250,7 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
   std::normal_distribution<double> noise_t(0, init_error_yaw_);
 
   particles_.clear();
-  particles_.resize(min_particles_);
+  particles_.resize((max_particles_ + min_particles_) / 2);
 
   for (auto & particle : particles_) {
     particle.prob = 1.0 / static_cast<double>(particles_.size());
@@ -410,9 +411,12 @@ ParticlesDistribution::correct_once(
     }
   }
 
+  quality_ = 0.0;
   for (auto & p : particles_) {
     p.hits = p.hits / static_cast<float>(scan.ranges.size());
+    quality_ += p.hits; 
   }
+  quality_ = quality_ / static_cast<float>(particles_.size());
 }
 
 tf2::Transform
@@ -573,23 +577,6 @@ ParticlesDistribution::normalize()
         p.prob = p.prob / sum;
       });
   }
-}
-
-float
-ParticlesDistribution::get_quality()
-{
-  // std::cerr << "===================================" << std::endl;
-  float ret = 0.0;
-  for (auto & p : particles_) {
-    // std::cerr << "\t-" << p.hits << std::endl;
-
-    ret += p.hits;
-  }
-  // std::cerr << ret << std::endl;
-  ret = ret / static_cast<float>(particles_.size());
-  // std::cerr << ret << std::endl;
-  // std::cerr << "--------------------------------" << std::endl;
-  return ret;
 }
 
 std_msgs::msg::ColorRGBA

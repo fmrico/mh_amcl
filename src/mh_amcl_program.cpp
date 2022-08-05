@@ -22,13 +22,8 @@ int main(int argc, char ** argv)
   rclcpp::init(argc, argv);
 
   auto mh_amcl = std::make_shared<mh_amcl::MH_AMCL_Node>();
-  // auto executor = rclcpp::executors::MultiThreadedExecutor(rclcpp::ExecutorOptions(), 2);
   auto executor = rclcpp::executors::SingleThreadedExecutor();
   executor.add_node(mh_amcl->get_node_base_interface());
-
-  // mh_amcl->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
-  // executor.spin_some();
-  // mh_amcl->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
 
   executor.spin();
 

@@ -35,32 +35,11 @@ class MH_AMCL_NodeTest : public mh_amcl::MH_AMCL_Node
 public:
   MH_AMCL_NodeTest() : MH_AMCL_Node() {}
 
-  double pdf_test(const geometry_msgs::msg::Pose & pose,
-    geometry_msgs::msg::PoseWithCovariance & distrib)
-  {
-    return pdf(pose, distrib);
-  }
 };
 
 
-TEST(test1, test_pdf)
+TEST(test1, test_aux)
 {
-  MH_AMCL_NodeTest mh_amcl;
-
-  geometry_msgs::msg::Pose pose;
-  pose.position.x = 0.05001;
-  pose.position.y = -0.00011;
-  pose.position.z = 0.004;
-
-  geometry_msgs::msg::PoseWithCovariance distrib;
-  for (int i = 0; i < 6; i++) {
-    distrib.covariance[i * 6 + i] = 0.5 * 0.5;
-  }
-  // distrib.covariance[0 * 6 + 0] = 0.1 * 0.1;
-  // distrib.covariance[1 * 6 + 1] = 0.1 * 0.1;
-  // distrib.covariance[5 * 6 + 5] = 0.1 * 0.1;
-
-  std::cerr << mh_amcl.pdf_test(pose, distrib) << std::endl;
 }
 
 int main(int argc, char * argv[])

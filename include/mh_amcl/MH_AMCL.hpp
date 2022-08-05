@@ -69,21 +69,15 @@ protected:
   void publish_position();
   void manage_hypotesis();
 
-  double pdf(const geometry_msgs::msg::Pose & pose,
-    geometry_msgs::msg::PoseWithCovariance & distrib);
-  Eigen::MatrixXf fromMsg(const geometry_msgs::msg::Pose & pose);
-  Eigen::MatrixXf fromCovMatrix(const std::array<double, 36> & cov);
-  Eigen::MatrixXf fromStdevs(const std::vector<double> & cov);
-
+  void get_distances(const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
+    double & dist_xy, double & dist_theta);
+  geometry_msgs::msg::Pose toMsg(const tf2::Transform & tf);
 private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_laser_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_init_pose_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav2_msgs::msg::ParticleCloud>::SharedPtr particles_pub_;
-
-  rclcpp::CallbackGroup::SharedPtr correct_cg_;
-  rclcpp::CallbackGroup::SharedPtr others_cg_;
 
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;
@@ -93,6 +87,8 @@ private:
   rclcpp::TimerBase::SharedPtr publish_position_timer_;
 
   std::list<std::shared_ptr<ParticlesDistribution>> particles_population_;
+  std::shared_ptr<ParticlesDistribution> current_amcl_;
+  float current_amcl_q_;
 
   tf2::BufferCore tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
@@ -110,9 +106,6 @@ private:
   void initpose_callback(
     const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr & pose_msg);
   int counter_ {0};
-
-  std::mutex m_correct_;
-  std::mutex m_others_;
 };
 
 }  // namespace mh_amcl

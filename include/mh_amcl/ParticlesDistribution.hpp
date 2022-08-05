@@ -76,7 +76,7 @@ public:
 
   void publish_particles(int base_idx, const std_msgs::msg::ColorRGBA & color) const;
   geometry_msgs::msg::PoseWithCovarianceStamped get_pose() const {return pose_;}
-  float get_quality();
+  float get_quality() {return quality_;};
 
 protected:
   rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node_;
@@ -102,6 +102,7 @@ protected:
   std::mt19937 generator_;
 
   std::vector<Particle> particles_;
+  float quality_;
 
   tf2::BufferCore tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
