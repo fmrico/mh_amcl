@@ -18,6 +18,9 @@
 #include <list>
 #include <mutex>
 
+#include <Eigen/Dense>
+#include <Eigen/LU> 
+
 #include "tf2_ros/transform_listener.h"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2/transform_datatypes.h"
@@ -111,6 +114,8 @@ MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
   predict_timer_ = create_wall_timer(10ms, std::bind(&MH_AMCL_Node::predict, this), others_cg_);
   correct_timer_ = create_wall_timer(100ms, std::bind(&MH_AMCL_Node::correct, this), correct_cg_);
   reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this), others_cg_);
+  hypotesys_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::manage_hypotesis, this), others_cg_);
+
   publish_particles_timer_ = create_wall_timer(
     100ms, std::bind(&MH_AMCL_Node::publish_particles, this), others_cg_);
   publish_position_timer_ = create_wall_timer(
@@ -143,6 +148,8 @@ MH_AMCL_Node::on_deactivate(const rclcpp_lifecycle::State & state)
   correct_timer_ = nullptr;
   reseed_timer_ = nullptr;
   publish_particles_timer_ = nullptr;
+  publish_position_timer_ = nullptr;
+  hypotesys_timer_ = nullptr;
 
   std::list<CallbackReturnT> ret;
   for (auto & particles : particles_population_) {
@@ -185,9 +192,10 @@ MH_AMCL_Node::publish_particles()
   auto start = now();
 
   Color color = RED;
+  int i = 0;
   for (const auto & particles : particles_population_) {
     color = static_cast<Color>((color + 1) % NUM_COLORS);
-    particles->publish_particles(getColor(color));
+    particles->publish_particles(i++, getColor(color));
   }
   RCLCPP_DEBUG_STREAM(get_logger(), "Publish [" << (now() - start).seconds() << " secs]");
 }
@@ -226,6 +234,7 @@ void
 MH_AMCL_Node::map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
 {
   costmap_ = std::make_shared<nav2_costmap_2d::Costmap2D>(*msg);
+  matcher_ = std::make_shared<mh_amcl::MapMatcher>(*msg);
 }
 
 void
@@ -317,15 +326,20 @@ MH_AMCL_Node::publish_position()
   float max_quality = -1.0;
   for (const auto & distrib : particles_population_) {
     auto quality = distrib->get_quality();
+    // std::cerr << "\t*Q: " << quality << std::endl;
     if (quality > max_quality) {
       max_quality = quality;
       selected_distrib = distrib;
     }
   }
 
+  // std::cerr << "Selected distrib with Q: " << max_quality << std::endl;
+
   assert(distrib != nullptr);
 
   geometry_msgs::msg::PoseWithCovarianceStamped pose = selected_distrib->get_pose();
+  // std::cerr << "Selected: (" << pose.pose.pose.position.x << ", " << pose.pose.pose.position.y <<
+  //   ")" << std::endl;
 
   // Publish pose
   if (pose_pub_->get_subscription_count() > 0) {
@@ -374,10 +388,145 @@ MH_AMCL_Node::publish_position()
     transform.child_frame_id = "odom";
 
     transform.transform = tf2::toMsg(map2odom);
+
+    // std::cerr << "Published: (" << map2robot.getOrigin().x() << ", " <<
+    //   map2robot.getOrigin().y() << ")" << std::endl;
+
     tf_broadcaster_->sendTransform(transform);
   } else {
     RCLCPP_WARN(get_logger(), "Timeout TFs [%s]", error.c_str());
   }
+}
+
+void
+MH_AMCL_Node::manage_hypotesis()
+{
+  if (last_laser_ == nullptr || costmap_ == nullptr || matcher_ == nullptr) {return;}
+
+  std::scoped_lock lock_c(m_correct_);
+  std::scoped_lock lock_o(m_others_);
+
+  // std::cerr << "================> manage_hypotesis" << std::endl;
+  const auto & tfs = matcher_->get_matchs(*last_laser_);
+
+  tf2::Transform selected;
+  bool new_distr = false;
+
+
+  for (const auto & transform : tfs) {
+    // std::cerr << "================> " << transform.weight << std::endl;
+    if (transform.weight > 0.8) {
+      // std::cerr << "================> hypotesis candidate" << std::endl;
+
+      bool covered = false;
+
+      for (const auto & distr : particles_population_) {
+        const auto & pose = distr->get_pose().pose.pose;
+        double diff_x = pose.position.x - transform.transform.getOrigin().x();
+        double diff_y = pose.position.y - transform.transform.getOrigin().y();
+        double dist = sqrt(diff_x * diff_x + diff_y * diff_y);
+
+        double tfroll, tfpitch, tfyaw;
+        tf2::Matrix3x3(transform.transform.getRotation()).getRPY(tfroll, tfpitch, tfyaw);
+
+        tf2::Quaternion q(pose.orientation.x, pose.orientation.y,
+          pose.orientation.z, pose.orientation.w);
+
+        double droll, dpitch, dyaw;
+        tf2::Matrix3x3(q).getRPY(droll, dpitch, dyaw);
+        double difft = fabs(dyaw - tfyaw);
+        while (difft > 2.0 * M_PI) {difft = difft - 2.0 * M_PI;}
+        while (difft < -2.0 * M_PI) {difft = difft + 2.0 * M_PI;}
+        // std::cerr << "================> " << dist << "   " << difft << std::endl;
+        if (dist < 0.5 && difft < 1.0) {
+          covered = true;
+        }
+      }
+
+      if (!covered) {
+        selected = transform.transform;
+        new_distr = true;
+        break;
+      }
+    }
+  }
+
+  if (new_distr) {
+    auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
+    aux_distr->on_configure(get_current_state());
+    aux_distr->init(selected);
+    aux_distr->on_activate(get_current_state());
+    particles_population_.push_back(aux_distr);
+  }
+}
+
+double
+MH_AMCL_Node::pdf(const geometry_msgs::msg::Pose & pose,
+    geometry_msgs::msg::PoseWithCovariance & distrib)
+{
+  Eigen::MatrixXf x = fromMsg(pose);
+  Eigen::MatrixXf mu = fromMsg(distrib.pose);
+  Eigen::MatrixXf E = fromCovMatrix(distrib.covariance);
+
+  std::cerr << "===============> x " << std::endl<< x << std::endl;
+  std::cerr << "===============> mu " << std::endl<< mu << std::endl;
+  std::cerr << "===============> E " << std::endl<< E << std::endl;
+  std::cerr << "===============> (x - mu).transpose() " << std::endl<< (x - mu).transpose() << std::endl;
+  std::cerr << "===============> E.inverse() " << std::endl<< E.inverse() << std::endl;
+  std::cerr << "===============> (x - mu) " << std::endl<< (x - mu) << std::endl;
+
+  auto val1 = (x - mu).transpose() * E.inverse() * (x - mu);
+  std::cerr << "===============> 1 " << val1 << std::endl;
+  double pdf_value_1 = exp(-0.5 * val1(0, 0));
+  std::cerr << "===============> pdf_value_1 " << pdf_value_1 << std::endl;
+  std::cerr << "===============> E.determinant() " << E.determinant() << std::endl;
+  double pdf_value_2 = powf(2.0 * M_PI, 6) * E.determinant();
+  std::cerr << "===============> pdf_value_2 " << pdf_value_2 << std::endl;
+  return pdf_value_1 / pdf_value_2;
+}
+
+Eigen::MatrixXf
+MH_AMCL_Node::fromMsg(const geometry_msgs::msg::Pose & pose)
+{
+  Eigen::MatrixXf ret(3, 1);
+  ret(0, 0) = pose.position.x;
+  ret(1, 0) = pose.position.y;
+  
+  const auto & or1 = pose.orientation;
+  tf2::Quaternion q(or1.x, or1.y, or1.z, or1.w);
+  double roll, pitch, yaw;
+  tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+  ret(3, 0) = yaw;
+
+  return ret;
+}
+
+Eigen::MatrixXf
+MH_AMCL_Node::fromCovMatrix(const std::array<double, 36> & cov)
+{
+  Eigen::MatrixXf ret(3, 3);
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      int ri = i;
+      int rj = j;
+
+      if (i == 3) {ri = 5;}
+      if (j == 3) {rj = 5;}
+
+      ret(i, j) = cov[ri * 6 + rj];
+    }
+  }
+  return ret;
+}
+
+Eigen::MatrixXf
+MH_AMCL_Node::fromStdevs(const std::vector<double> & cov)
+{
+  Eigen::MatrixXf ret(3, 3);
+  for (int i = 0; i < 3; i++) {
+    ret(i, i) = cov[i] * cov[i];
+  }
+  return ret;
 }
 
 }  // namespace mh_amcl

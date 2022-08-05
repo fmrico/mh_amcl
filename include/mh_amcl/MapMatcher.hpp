@@ -40,7 +40,7 @@ class MapMatcher
 {
 public:
   MapMatcher(const nav_msgs::msg::OccupancyGrid & map);
-  std::list<tf2::Transform> get_matchs(const sensor_msgs::msg::LaserScan & scan);
+  std::list<TransformWeighted> get_matchs(const sensor_msgs::msg::LaserScan & scan);
 
 protected:
   static const int NUM_LEVEL_SCALE_COSTMAP = 4;

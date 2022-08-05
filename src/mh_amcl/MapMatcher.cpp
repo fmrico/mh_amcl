@@ -83,17 +83,17 @@ MapMatcher::half_scale(std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_in)
   return costmap;
 }
 
-std::list<tf2::Transform>
+std::list<TransformWeighted>
 MapMatcher::get_matchs(const sensor_msgs::msg::LaserScan & scan)
 {
   std::vector<tf2::Vector3> laser_poins = laser2points(scan);
   std::list<TransformWeighted> candidates_3 = get_matchs(2, laser_poins);
 
   candidates_3.sort();
-  std::list<tf2::Transform> ret;
+  std::list<TransformWeighted> ret;
   for (const auto & tw : candidates_3) {
     if (tw.weight > 0.5) {
-      ret.push_back(tw.transform);
+      ret.push_back(tw);
     }
     // const auto & x = tw.transform.getOrigin().x();
     // const auto & y = tw.transform.getOrigin().y();

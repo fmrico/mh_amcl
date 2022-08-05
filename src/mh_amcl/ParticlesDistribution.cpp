@@ -317,7 +317,7 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
 }
 
 void
-ParticlesDistribution::publish_particles(const std_msgs::msg::ColorRGBA & color) const
+ParticlesDistribution::publish_particles(int base_idx, const std_msgs::msg::ColorRGBA & color) const
 {
   if (pub_particles_->get_subscription_count() == 0) {
     return;
@@ -331,7 +331,7 @@ ParticlesDistribution::publish_particles(const std_msgs::msg::ColorRGBA & color)
 
     pose_msg.header.frame_id = "map";
     pose_msg.header.stamp = parent_node_->now();
-    pose_msg.id = counter++;
+    pose_msg.id = base_idx * 200 + counter++;
     pose_msg.type = visualization_msgs::msg::Marker::ARROW;
     pose_msg.type = visualization_msgs::msg::Marker::ADD;
     pose_msg.lifetime = rclcpp::Duration(1s);
@@ -578,11 +578,18 @@ ParticlesDistribution::normalize()
 float
 ParticlesDistribution::get_quality()
 {
+  // std::cerr << "===================================" << std::endl;
   float ret = 0.0;
   for (auto & p : particles_) {
+    // std::cerr << "\t-" << p.hits << std::endl;
+
     ret += p.hits;
   }
-  return ret / static_cast<float>(particles_.size());
+  // std::cerr << ret << std::endl;
+  ret = ret / static_cast<float>(particles_.size());
+  // std::cerr << ret << std::endl;
+  // std::cerr << "--------------------------------" << std::endl;
+  return ret;
 }
 
 std_msgs::msg::ColorRGBA

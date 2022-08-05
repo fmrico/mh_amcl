@@ -20,6 +20,9 @@
 #include <list>
 #include <memory>
 
+#include <Eigen/Dense>
+#include <Eigen/LU> 
+
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_ros/transform_broadcaster.h"
@@ -35,6 +38,7 @@
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 #include "mh_amcl/ParticlesDistribution.hpp"
+#include "mh_amcl/MapMatcher.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
@@ -63,6 +67,13 @@ protected:
   void reseed();
   void publish_particles();
   void publish_position();
+  void manage_hypotesis();
+
+  double pdf(const geometry_msgs::msg::Pose & pose,
+    geometry_msgs::msg::PoseWithCovariance & distrib);
+  Eigen::MatrixXf fromMsg(const geometry_msgs::msg::Pose & pose);
+  Eigen::MatrixXf fromCovMatrix(const std::array<double, 36> & cov);
+  Eigen::MatrixXf fromStdevs(const std::vector<double> & cov);
 
 private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
@@ -77,6 +88,7 @@ private:
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;
   rclcpp::TimerBase::SharedPtr reseed_timer_;
+  rclcpp::TimerBase::SharedPtr hypotesys_timer_;
   rclcpp::TimerBase::SharedPtr publish_particles_timer_;
   rclcpp::TimerBase::SharedPtr publish_position_timer_;
 
@@ -91,6 +103,7 @@ private:
 
   std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_;
   sensor_msgs::msg::LaserScan::UniquePtr last_laser_;
+  std::shared_ptr<mh_amcl::MapMatcher> matcher_;
 
   void map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
   void laser_callback(sensor_msgs::msg::LaserScan::UniquePtr lsr_msg);

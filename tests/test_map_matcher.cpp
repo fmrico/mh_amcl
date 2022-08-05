@@ -80,10 +80,10 @@ TEST(test1, test_match)
   const auto & tfs = map_matcher.get_matchs(scan);
 
   for (const auto & transform : tfs) {
-    const auto & x = transform.getOrigin().x();
-    const auto & y = transform.getOrigin().y();
+    const auto & x = transform.transform.getOrigin().x();
+    const auto & y = transform.transform.getOrigin().y();
     double roll, pitch, yaw;
-    tf2::Matrix3x3(transform.getRotation()).getRPY(roll, pitch, yaw);
+    tf2::Matrix3x3(transform.transform.getRotation()).getRPY(roll, pitch, yaw);
      std::cerr << "(" << x << ", " << y << ", " << yaw << ")" << std::endl;
   }
   // start = test_node->now();

@@ -74,8 +74,8 @@ public:
   CallbackReturnT on_deactivate(const rclcpp_lifecycle::State & state);
   CallbackReturnT on_cleanup(const rclcpp_lifecycle::State & state);
 
-  void publish_particles(const std_msgs::msg::ColorRGBA & color) const;
-  geometry_msgs::msg::PoseWithCovarianceStamped get_pose() {return pose_;}
+  void publish_particles(int base_idx, const std_msgs::msg::ColorRGBA & color) const;
+  geometry_msgs::msg::PoseWithCovarianceStamped get_pose() const {return pose_;}
   float get_quality();
 
 protected:
