@@ -20,6 +20,9 @@
 #include <list>
 #include <memory>
 
+#include <Eigen/Dense>
+#include <Eigen/LU> 
+
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_ros/transform_broadcaster.h"
@@ -35,6 +38,7 @@
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 #include "mh_amcl/ParticlesDistribution.hpp"
+#include "mh_amcl/MapMatcher.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
@@ -63,7 +67,11 @@ protected:
   void reseed();
   void publish_particles();
   void publish_position();
+  void manage_hypotesis();
 
+  void get_distances(const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
+    double & dist_xy, double & dist_theta);
+  geometry_msgs::msg::Pose toMsg(const tf2::Transform & tf);
 private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_laser_;
@@ -71,16 +79,16 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav2_msgs::msg::ParticleCloud>::SharedPtr particles_pub_;
 
-  rclcpp::CallbackGroup::SharedPtr correct_cg_;
-  rclcpp::CallbackGroup::SharedPtr others_cg_;
-
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;
   rclcpp::TimerBase::SharedPtr reseed_timer_;
+  rclcpp::TimerBase::SharedPtr hypotesys_timer_;
   rclcpp::TimerBase::SharedPtr publish_particles_timer_;
   rclcpp::TimerBase::SharedPtr publish_position_timer_;
 
   std::list<std::shared_ptr<ParticlesDistribution>> particles_population_;
+  std::shared_ptr<ParticlesDistribution> current_amcl_;
+  float current_amcl_q_;
 
   tf2::BufferCore tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
@@ -91,15 +99,13 @@ private:
 
   std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_;
   sensor_msgs::msg::LaserScan::UniquePtr last_laser_;
+  std::shared_ptr<mh_amcl::MapMatcher> matcher_;
 
   void map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
   void laser_callback(sensor_msgs::msg::LaserScan::UniquePtr lsr_msg);
   void initpose_callback(
     const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr & pose_msg);
   int counter_ {0};
-
-  std::mutex m_correct_;
-  std::mutex m_others_;
 };
 
 }  // namespace mh_amcl

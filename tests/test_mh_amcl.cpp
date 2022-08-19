@@ -12,22 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
+#include <limits>
+
+#include "gtest/gtest.h"
+
 #include "mh_amcl/MH_AMCL.hpp"
 
-#include "lifecycle_msgs/msg/transition.hpp"
+#include "nav2_costmap_2d/cost_values.hpp"
+#include "tf2_ros/static_transform_broadcaster.h"
+#include "sensor_msgs/msg/laser_scan.hpp"
+#include "lifecycle_msgs/msg/state.hpp"
+
+#include "nav2_costmap_2d/costmap_2d.hpp"
+
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_lifecycle/lifecycle_node.hpp"
 
-int main(int argc, char ** argv)
+
+class MH_AMCL_NodeTest : public mh_amcl::MH_AMCL_Node
 {
+public:
+  MH_AMCL_NodeTest() : MH_AMCL_Node() {}
+
+};
+
+
+TEST(test1, test_aux)
+{
+}
+
+int main(int argc, char * argv[])
+{
+  testing::InitGoogleTest(&argc, argv);
   rclcpp::init(argc, argv);
-
-  auto mh_amcl = std::make_shared<mh_amcl::MH_AMCL_Node>();
-  auto executor = rclcpp::executors::SingleThreadedExecutor();
-  executor.add_node(mh_amcl->get_node_base_interface());
-
-  executor.spin();
-
-  rclcpp::shutdown();
-
+  return RUN_ALL_TESTS();
   return 0;
 }
