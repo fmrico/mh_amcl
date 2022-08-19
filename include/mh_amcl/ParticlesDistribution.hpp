@@ -93,6 +93,7 @@ protected:
     const tf2::Transform & transform,
     const nav2_costmap_2d::Costmap2D & costmap);
   void normalize();
+  double normalize_angle(double angle);
   void update_pose(geometry_msgs::msg::PoseWithCovarianceStamped & pose);
   void update_covariance(geometry_msgs::msg::PoseWithCovarianceStamped & pose);
 

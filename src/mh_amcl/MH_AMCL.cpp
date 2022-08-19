@@ -403,7 +403,7 @@ MH_AMCL_Node::manage_hypotesis()
         double dist, difft;
         get_distances(pose, posetf, dist, difft);
 
-        if (dist < 0.5 && difft < 1.0) {
+        if (dist < 0.5 && difft < M_PI_2) {
           covered = true;
         }
       }
@@ -422,7 +422,6 @@ MH_AMCL_Node::manage_hypotesis()
     aux_distr->init(selected);
     aux_distr->on_activate(get_current_state());
     particles_population_.push_back(aux_distr);
-
   }
 
   auto it = particles_population_.begin();

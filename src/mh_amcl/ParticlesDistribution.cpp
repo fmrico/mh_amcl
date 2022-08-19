@@ -124,14 +124,18 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
 void
 ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped & pose)
 {
-  std::vector<double> vpx(particles_.size(), 0.0);
-  std::vector<double> vpy(particles_.size(), 0.0);
-  std::vector<double> vpz(particles_.size(), 0.0);
-  std::vector<double> vrr(particles_.size(), 0.0);
-  std::vector<double> vrp(particles_.size(), 0.0);
-  std::vector<double> vry(particles_.size(), 0.0);
+  // How many particles we use to determine the pose. They are sorted by prob in last reseed
+  size_t particles_used = std::max(
+    1, static_cast<int>(particles_.size() * reseed_percentage_winners_));
 
-  for (int i = 0; i < particles_.size(); i++) {
+  std::vector<double> vpx(particles_used, 0.0);
+  std::vector<double> vpy(particles_used, 0.0);
+  std::vector<double> vpz(particles_used, 0.0);
+  std::vector<double> vrr(particles_used, 0.0);
+  std::vector<double> vrp(particles_used, 0.0);
+  std::vector<double> vry(particles_used, 0.0);
+
+  for (int i = 0; i < particles_used; i++) {
     const auto & pose = particles_[i].pose.getOrigin();
     vpx[i] = pose.x();
     vpy[i] = pose.y();
@@ -139,9 +143,9 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
 
     double troll, tpitch, tyaw;
     tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(troll, tpitch, tyaw);
-    vrr[i] = troll;
-    vrp[i] = tpitch;
-    vry[i] = tyaw;
+    vrr[i] = troll + M_PI;
+    vrp[i] = tpitch + M_PI;
+    vry[i] = tyaw + M_PI;
   }
 
   pose.pose.pose.position.x = mean(vpx);
@@ -152,13 +156,25 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
   ret.setOrigin({mean(vpx), mean(vpx), mean(vpz)});
 
   tf2::Quaternion q;
-  q.setRPY(mean(vrr), mean(vrp), mean(vry));
+  double mvrr = normalize_angle(mean(vrr) - M_PI);
+  double mvrp = normalize_angle(mean(vrp) - M_PI);
+  double mvry = normalize_angle(mean(vry) - M_PI);
+
+  q.setRPY(mvrr, mvrp, mvry);
   ret.setRotation(q);
 
   pose.pose.pose.orientation.x = q.x();
   pose.pose.pose.orientation.y = q.y();
   pose.pose.pose.orientation.z = q.z();
   pose.pose.pose.orientation.w = q.w();
+}
+
+double
+ParticlesDistribution::normalize_angle(double angle)
+{
+  while (angle > M_PI) {angle = angle - 2.0 * M_PI;}
+  while (angle < -M_PI) {angle = angle + 2.0 * M_PI;}
+  return angle;
 }
 
 void
@@ -179,9 +195,9 @@ ParticlesDistribution::update_covariance(geometry_msgs::msg::PoseWithCovarianceS
 
     double troll, tpitch, tyaw;
     tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(troll, tpitch, tyaw);
-    vrr[i] = troll;
-    vrp[i] = tpitch;
-    vry[i] = tyaw;
+    vrr[i] = troll + M_PI;
+    vrp[i] = tpitch + M_PI;
+    vry[i] = tyaw + M_PI ;
   }
 
   std::vector<std::vector<double>> vs = {vpx, vpy, vpz, vrr, vrp, vry};
