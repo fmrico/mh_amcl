@@ -402,6 +402,7 @@ MH_AMCL_Node::manage_hypotesis()
 
         double dist, difft;
         get_distances(pose, posetf, dist, difft);
+        std::cerr << "dists " << dist << " and " << difft << std::endl;
 
         if (dist < 0.5 && difft < M_PI_2) {
           covered = true;
@@ -409,11 +410,16 @@ MH_AMCL_Node::manage_hypotesis()
       }
 
       if (!covered) {
+        std::cerr << "===============================" << std::endl;
+        std::cerr << "New dist!! " << std::endl;
+        std::cerr << "===============================" << std::endl;
         selected = transform.transform;
         new_distr = true;
         break;
       }
     }
+
+    if (new_distr) {break;}
   }
 
   if (new_distr) {
@@ -448,11 +454,12 @@ MH_AMCL_Node::manage_hypotesis()
 
       double dist_xy, dist_t;
       get_distances((*it1)->get_pose().pose.pose, (*it2)->get_pose().pose.pose, dist_xy, dist_t);
-      if (dist_xy < 0.1 && dist_t < 0.3) {
+      if (dist_xy < 0.2 && dist_t < 0.3) {
+        (*it1)->merge(**it2);
         it2 = particles_population_.erase(it2);
         if (current_amcl_ == *it2) {
           current_amcl_ = particles_population_.front();
-          current_amcl_q_ = 0.4;
+          current_amcl_q_ = current_amcl_->get_quality();
         }
       } else {
         ++it2;
@@ -513,9 +520,7 @@ MH_AMCL_Node::get_distances(const geometry_msgs::msg::Pose & pose1, const geomet
   tf2::Matrix3x3(q1).getRPY(roll1, pitch1, yaw1);
   tf2::Matrix3x3(q2).getRPY(roll2, pitch2, yaw2);
 
-  dist_theta = fabs(yaw1 - yaw2);
-  while (dist_theta > 2.0 * M_PI) {dist_theta = dist_theta - 2.0 * M_PI;}
-  while (dist_theta < -2.0 * M_PI) {dist_theta = dist_theta + 2.0 * M_PI;}
+  dist_theta = fabs(atan2(sin(yaw1 - yaw2), cos(yaw1 - yaw2)));
 }
 
 }  // namespace mh_amcl

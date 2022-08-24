@@ -125,8 +125,7 @@ void
 ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped & pose)
 {
   // How many particles we use to determine the pose. They are sorted by prob in last reseed
-  size_t particles_used = std::max(
-    1, static_cast<int>(particles_.size() * reseed_percentage_winners_));
+  size_t particles_used = particles_.size();
 
   std::vector<double> vpx(particles_used, 0.0);
   std::vector<double> vpy(particles_used, 0.0);
@@ -134,6 +133,7 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
   std::vector<double> vrr(particles_used, 0.0);
   std::vector<double> vrp(particles_used, 0.0);
   std::vector<double> vry(particles_used, 0.0);
+  std::vector<double> w(particles_used, 0.0);
 
   for (int i = 0; i < particles_used; i++) {
     const auto & pose = particles_[i].pose.getOrigin();
@@ -143,22 +143,24 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
 
     double troll, tpitch, tyaw;
     tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(troll, tpitch, tyaw);
-    vrr[i] = troll + M_PI;
-    vrp[i] = tpitch + M_PI;
-    vry[i] = tyaw + M_PI;
+    vrr[i] = troll;
+    vrp[i] = tpitch;
+    vry[i] = tyaw;
+
+    w[i] = particles_[i].prob;
   }
 
-  pose.pose.pose.position.x = mean(vpx);
-  pose.pose.pose.position.y = mean(vpy);
-  pose.pose.pose.position.z = mean(vpz);
+  pose.pose.pose.position.x = weighted_mean(vpx, w);
+  pose.pose.pose.position.y = weighted_mean(vpy, w);
+  pose.pose.pose.position.z = weighted_mean(vpz, w);
 
   tf2::WithCovarianceStamped<tf2::Transform> ret;
-  ret.setOrigin({mean(vpx), mean(vpx), mean(vpz)});
+  ret.setOrigin({weighted_mean(vpx, w), weighted_mean(vpx, w), weighted_mean(vpz, w)});
 
   tf2::Quaternion q;
-  double mvrr = normalize_angle(mean(vrr) - M_PI);
-  double mvrp = normalize_angle(mean(vrp) - M_PI);
-  double mvry = normalize_angle(mean(vry) - M_PI);
+  double mvrr = angle_weighted_mean(vrr, w);
+  double mvrp = angle_weighted_mean(vrp, w);
+  double mvry = angle_weighted_mean(vry, w);
 
   q.setRPY(mvrr, mvrp, mvry);
   ret.setRotation(q);
@@ -195,18 +197,65 @@ ParticlesDistribution::update_covariance(geometry_msgs::msg::PoseWithCovarianceS
 
     double troll, tpitch, tyaw;
     tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(troll, tpitch, tyaw);
-    vrr[i] = troll + M_PI;
-    vrp[i] = tpitch + M_PI;
-    vry[i] = tyaw + M_PI ;
+    vrr[i] = troll;
+    vrp[i] = tpitch;
+    vry[i] = tyaw;
   }
 
   std::vector<std::vector<double>> vs = {vpx, vpy, vpz, vrr, vrp, vry};
 
   for (int i = 0; i < 6; i++) {
     for (int j = 0; j < 6; j++) {
-      pose.pose.covariance[i * 6 + j] = covariance(vs[i], vs[j]);
+      bool is_i_angle = i >= 3;
+      bool is_j_angle = j >= 3;
+      pose.pose.covariance[i * 6 + j] = covariance(vs[i], vs[j], is_i_angle, is_j_angle);
     }
   }
+}
+
+double weighted_mean(const std::vector<double> & v, const std::vector<double> & w)
+{
+  if (v.empty() || v.size() != w.size()) {
+    return 0.0;
+  }
+
+  double wsum = 0.0;
+  for (int i = 0; i < v.size(); i++) {
+    wsum = wsum + v[i] * w[i];
+  }
+  return wsum;
+}
+
+double angle_weighted_mean(const std::vector<double> & v, const std::vector<double> & w)
+{
+  if (v.empty() || v.size() != w.size()) {
+    return 0.0;
+  }
+
+  double x = 0.0;
+  double y = 0.0;
+  for (int i = 0; i < v.size(); i++) {
+    x += w[i] * cos(v[i]); 
+    y += w[i] * sin(v[i]); 
+  }
+
+  return atan2(y, x);
+}
+
+double angle_mean(const std::vector<double> & v)
+{
+  if (v.empty()) {
+    return 0.0;
+  }
+
+  double x = 0.0;
+  double y = 0.0;
+  for (const auto & val : v) {
+    x += cos(val); 
+    y += sin(val); 
+  }
+
+  return atan2(y, x);
 }
 
 double mean(const std::vector<double> & v)
@@ -217,7 +266,7 @@ double mean(const std::vector<double> & v)
   return std::accumulate(v.begin(), v.end(), 0.0) / v.size();
 }
 
-double covariance(const std::vector<double> & v1, const std::vector<double> & v2)
+double covariance(const std::vector<double> & v1, const std::vector<double> & v2, bool v1_is_angle, bool v2_is_angle)
 {
   assert(v1.size() == v2.size());
 
@@ -225,8 +274,19 @@ double covariance(const std::vector<double> & v1, const std::vector<double> & v2
     return 0.0;
   }
 
-  double mv1 = mean(v1);
-  double mv2 = mean(v2);
+  double mv1, mv2;
+  if (v1_is_angle) {
+    mv1 = angle_mean(v1);
+  } else {
+    mv1 = mean(v1);
+  }
+
+  if (v2_is_angle) {
+    mv2 = angle_mean(v2);
+  } else {
+    mv2 = mean(v2);
+  }
+
   double sum = 0.0;
 
   for (int i = 0; i < v1.size(); i++) {
@@ -427,6 +487,9 @@ ParticlesDistribution::correct_once(
     }
   }
 
+  normalize();
+
+  // Calculate quality
   quality_ = 0.0;
   for (auto & p : particles_) {
     p.hits = p.hits / static_cast<float>(scan.ranges.size());
@@ -506,7 +569,6 @@ ParticlesDistribution::get_error_distance_to_obstacle(
 void
 ParticlesDistribution::reseed()
 {
-  normalize();
   // Sort particles by prob
   std::sort(
     particles_.begin(), particles_.end(),
@@ -550,7 +612,7 @@ ParticlesDistribution::reseed()
     int index = std::clamp(static_cast<int>(selector(generator_)), 0, number_winners);
 
     Particle p;
-    p.prob = new_particles.back().prob / 2.0;
+    p.prob = new_particles.back().prob;
 
     auto w_pose = particles_[i].pose.getOrigin();
 
@@ -561,9 +623,12 @@ ParticlesDistribution::reseed()
 
     double roll, pitch, yaw;
 
-    tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(roll, pitch, yaw);
+    tf2::Matrix3x3 m(particles_[i].pose.getRotation());
+    m.getRPY(roll, pitch, yaw);
 
     double newyaw = yaw + noise_t(generator_);
+    while (newyaw > M_PI) {newyaw -= 2.0 * M_PI;}
+    while (newyaw < -M_PI) {newyaw += 2.0 * M_PI;}
 
     tf2::Quaternion q;
     q.setRPY(roll, pitch, newyaw);
@@ -574,7 +639,7 @@ ParticlesDistribution::reseed()
   }
 
   particles_ = new_particles;
-
+  normalize();
   update_covariance(pose_);
 }
 
@@ -593,6 +658,21 @@ ParticlesDistribution::normalize()
         p.prob = p.prob / sum;
       });
   }
+}
+
+void
+ParticlesDistribution::merge(ParticlesDistribution & other)
+{
+  size_t size = particles_.size();
+  particles_.insert(particles_.end(), other.particles_.begin(), other.particles_.end());
+
+  std::sort(
+    particles_.begin(), particles_.end(),
+    [](const Particle & a, const Particle & b) -> bool
+    {
+      return a.prob > b.prob;
+    });
+  particles_.erase(particles_.begin() + size, particles_.end());
 }
 
 std_msgs::msg::ColorRGBA

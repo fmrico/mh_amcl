@@ -12,5 +12,5 @@ mh_amcl_node:
     translation_noise: 0.1
     rotation_noise: 0.05
     distance_perception_error: 0.01
-    reseed_percentage_losers: 0.9
-    reseed_percentage_winners: 0.1
+    reseed_percentage_losers: 0.6
+    reseed_percentage_winners: 0.05
