@@ -54,7 +54,7 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   tf_listener_(tf_buffer_)
 {
   sub_laser_ = create_subscription<sensor_msgs::msg::LaserScan>(
-    "scan", 100, std::bind(&MH_AMCL_Node::laser_callback, this, _1));
+    "scan", rclcpp::QoS(100).best_effort(), std::bind(&MH_AMCL_Node::laser_callback, this, _1));
   sub_map_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
     "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
     std::bind(&MH_AMCL_Node::map_callback, this, _1));
@@ -410,9 +410,6 @@ MH_AMCL_Node::manage_hypotesis()
       }
 
       if (!covered) {
-        std::cerr << "===============================" << std::endl;
-        std::cerr << "New dist!! " << std::endl;
-        std::cerr << "===============================" << std::endl;
         selected = transform.transform;
         new_distr = true;
         break;
@@ -468,12 +465,10 @@ MH_AMCL_Node::manage_hypotesis()
     ++it1;
   }
 
-  if (current_amcl_q_ < 0.5) {
-    for (const auto & amcl : particles_population_) {
-      if (amcl->get_quality() > 0.5 && amcl->get_quality() > (current_amcl_q_ + 0.2)) {
-        current_amcl_q_ = amcl->get_quality();
-        current_amcl_ = amcl;
-      }
+  for (const auto & amcl : particles_population_) {
+    if (amcl->get_quality() > 0.5 && amcl->get_quality() > (current_amcl_q_ + 0.2)) {
+      current_amcl_q_ = amcl->get_quality();
+      current_amcl_ = amcl;
     }
   }
 
