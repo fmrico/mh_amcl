@@ -71,6 +71,7 @@ protected:
 
   void get_distances(const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
     double & dist_xy, double & dist_theta);
+  unsigned char get_cost(const geometry_msgs::msg::Pose & pose);
   geometry_msgs::msg::Pose toMsg(const tf2::Transform & tf);
 private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;

@@ -87,36 +87,58 @@ std::list<TransformWeighted>
 MapMatcher::get_matchs(const sensor_msgs::msg::LaserScan & scan)
 {
   std::vector<tf2::Vector3> laser_poins = laser2points(scan);
-  std::list<TransformWeighted> candidates_3 = get_matchs(2, laser_poins);
 
-  candidates_3.sort();
-  std::list<TransformWeighted> ret;
-  for (const auto & tw : candidates_3) {
-    if (tw.weight > 0.5) {
-      ret.push_back(tw);
+  int start_level = NUM_LEVEL_SCALE_COSTMAP - 2;
+  int min_level = 2;
+
+  double min_x, max_x, min_y, max_y;
+  costmaps_[start_level]->mapToWorld(0, 0, min_x, min_y);
+  costmaps_[start_level]->mapToWorld(costmaps_[start_level]->getSizeInCellsX(), costmaps_[start_level]->getSizeInCellsY(), max_x, max_y);
+
+  std::list<TransformWeighted> candidates[NUM_LEVEL_SCALE_COSTMAP];
+  candidates[start_level] = get_matchs(start_level, laser_poins, min_x, min_y, max_x, max_y);
+  candidates[start_level].sort();
+  
+  for (int level = start_level; level >= min_level; level--) {
+
+    // std::cerr << "Level " << level << "\tcandidates: " << candidates[level].size() << "\tResolution: " << costmaps_[level]->getResolution() << std::endl;
+    for (const auto & candidate : candidates[level]) {
+      double min_x, max_x, min_y, max_y;
+      min_x = candidate.transform.getOrigin().x() - costmaps_[level]->getResolution() / 2.0;
+      max_x = candidate.transform.getOrigin().x() + costmaps_[level]->getResolution() / 2.0;
+      min_y = candidate.transform.getOrigin().y() - costmaps_[level]->getResolution() / 2.0;
+      max_y = candidate.transform.getOrigin().y() + costmaps_[level]->getResolution() / 2.0;
+
+      auto new_candidates = get_matchs(level - 1, laser_poins, min_x, min_y, max_x, max_y);
+
+      // std::cerr << "\tAdding " << new_candidates.size() << " candidates in ([" <<  min_x << ", " << max_x << "] , ["  <<
+      //   min_y << ", " << max_y << "])" << std::endl;
+      candidates[level - 1].insert(candidates[level - 1].end(), new_candidates.begin(), new_candidates.end()); 
     }
-    // const auto & x = tw.transform.getOrigin().x();
-    // const auto & y = tw.transform.getOrigin().y();
-    // double roll, pitch, yaw;
-    // tf2::Matrix3x3(tw.transform.getRotation()).getRPY(roll, pitch, yaw);
-    //  std::cerr << "(" << x << ", " << y << ", " << yaw << ") " << tw.weight << std::endl;
   }
+  
+  candidates[min_level].sort();
 
-
-  return ret;
+  return candidates[min_level];
 }
 
 std::list<TransformWeighted>
-MapMatcher::get_matchs(int scale, const std::vector<tf2::Vector3> & scan)
+MapMatcher::get_matchs(
+  int scale, const std::vector<tf2::Vector3> & scan,
+  float min_x, float min_y, float max_y, float max_x)
 {
   std::list<TransformWeighted> ret;
-  const auto & costmap = costmaps_[scale - 1];
+  const auto & costmap = costmaps_[scale];
 
-  for (unsigned int i = 0; i < costmap->getSizeInCellsX(); i++) {
-    for (unsigned int j = 0; j < costmap->getSizeInCellsY(); j++) {
+  int init_i, init_j, end_i, end_j;
+  costmap->worldToMapEnforceBounds(min_x, min_y, init_i, init_j);
+  costmap->worldToMapEnforceBounds(max_x, max_y, end_i, end_j);
+
+  for (unsigned int i = init_i; i < end_i; i++) {
+    for (unsigned int j = init_j; j < end_j; j++) {
       auto cost = costmap->getCost(i, j);
       if (cost == nav2_costmap_2d::FREE_SPACE) {
-        double inc_theta = (M_PI / 8.0) / static_cast<double>(scale);
+        double inc_theta = (M_PI / 4.0);
         for (double theta = 0; theta < 1.9 * M_PI; theta = theta + inc_theta) {
           double x, y;
           costmap->mapToWorld(i, j, x, y);
@@ -127,7 +149,10 @@ MapMatcher::get_matchs(int scale, const std::vector<tf2::Vector3> & scan)
           tw.transform = tf2::Transform(q, {x, y, 0.0});
 
           tw.weight = match(scale, *costmap, scan, tw.transform);
-          ret.push_back(tw);
+          
+          if (tw.weight > 0.5) {
+            ret.push_back(tw);
+          }
         }
       }
     }
@@ -140,19 +165,31 @@ MapMatcher::match(int scale, const nav2_costmap_2d::Costmap2D & costmap,
   const std::vector<tf2::Vector3> & scan, tf2::Transform & transform)
 {
   int hits = 0;
+  int total = 0;
 
   for (int i = 0; i < scan.size(); i = i + scale) {
     tf2::Vector3 test_point = transform * scan[i];
-    unsigned int gi, gj;
-    costmap.worldToMap(test_point.x(), test_point.y(), gi, gj);
+    int gi, gj;
+    
+    costmap.worldToMapNoBounds(test_point.x(), test_point.y(), gi, gj);
+
+
     if (gi > 0 && gj > 0 && gi < costmap.getSizeInCellsX() && gj < costmap.getSizeInCellsY() &&
       costmap.getCost(gi, gj) == nav2_costmap_2d::LETHAL_OBSTACLE)
     {
+      // if (transform.getOrigin().x() < -5.0 && transform.getOrigin().x() > -6.0  &&
+      //   transform.getOrigin().y() < -4.5 && transform.getOrigin().y() > -5.0) {
+      //   std::cerr << "Hit in (" << test_point.x() << ", " << test_point.y() << ")" << 
+      //   "{" << gi << ", " << gj << "}" << "[" <<  costmap.getSizeInCellsX() << " - " << costmap.getSizeInCellsY() << "]" <<
+      //   std::endl;
+      // }
+
       hits++;
     }
+    total++;
   }
 
-  return static_cast<float>(hits) / (static_cast<float>(scan.size()) / static_cast<float>(scale));
+  return static_cast<float>(hits) / static_cast<float>(total);
 }
 
 std::vector<tf2::Vector3>

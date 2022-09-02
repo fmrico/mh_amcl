@@ -116,7 +116,7 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   init_pose.setRotation(q);
 
   init(init_pose);
-  quality_ = 0.5;
+  quality_ = 0.25;
 
   return CallbackReturnT::SUCCESS;
 }
@@ -493,9 +493,8 @@ ParticlesDistribution::correct_once(
   quality_ = 0.0;
   for (auto & p : particles_) {
     p.hits = p.hits / static_cast<float>(scan.ranges.size());
-    quality_ += p.hits; 
+    quality_ = std::max(quality_, p.hits); 
   }
-  quality_ = quality_ / static_cast<float>(particles_.size());
 }
 
 tf2::Transform

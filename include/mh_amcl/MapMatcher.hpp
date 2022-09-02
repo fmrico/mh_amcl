@@ -48,7 +48,9 @@ protected:
   std::shared_ptr<nav2_costmap_2d::Costmap2D>
   half_scale(std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_in);
   std::vector<tf2::Vector3> laser2points(const sensor_msgs::msg::LaserScan & scan);
-  std::list<TransformWeighted> get_matchs(int scale, const std::vector<tf2::Vector3> & scan);
+  std::list<TransformWeighted> get_matchs(
+    int scale, const std::vector<tf2::Vector3> & scan,
+    float min_x, float min_y, float max_y, float max_x);
   float match(int scale, const nav2_costmap_2d::Costmap2D & costmap,
     const std::vector<tf2::Vector3> & scan, tf2::Transform & transform);
 

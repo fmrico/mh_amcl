@@ -401,12 +401,9 @@ MH_AMCL_Node::manage_hypotesis()
 
   const auto & tfs = matcher_->get_matchs(*last_laser_);
 
-  tf2::Transform selected;
-  bool new_distr = false;
-
   // Create new Hypothesis
   for (const auto & transform : tfs) {
-    if (transform.weight > 0.8) {
+    if (transform.weight > 0.5) {
       bool covered = false;
 
       for (const auto & distr : particles_population_) {
@@ -415,38 +412,38 @@ MH_AMCL_Node::manage_hypotesis()
 
         double dist, difft;
         get_distances(pose, posetf, dist, difft);
-        std::cerr << "dists " << dist << " and " << difft << std::endl;
 
         if (dist < 0.5 && difft < M_PI_2) {
           covered = true;
         }
       }
 
-      if (!covered) {
-        selected = transform.transform;
-        new_distr = true;
-        break;
+      if (!covered && particles_population_.size() < max_hypotheses_) {
+        // std::cerr << "Started new in (" << transform.transform.getOrigin().x() << ", " <<  transform.transform.getOrigin().y() << ")" << std::endl;
+        auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
+        aux_distr->on_configure(get_current_state());
+        aux_distr->init(transform.transform);
+        aux_distr->on_activate(get_current_state());
+        particles_population_.push_back(aux_distr);
       }
     }
 
-    if (new_distr) {break;}
-  }
-
-  if (new_distr && particles_population_.size() < max_hypotheses_) {
-    auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
-    aux_distr->on_configure(get_current_state());
-    aux_distr->init(selected);
-    aux_distr->on_activate(get_current_state());
-    particles_population_.push_back(aux_distr);
+    if (particles_population_.size() == max_hypotheses_) {break;}
   }
 
   auto it = particles_population_.begin();
   while (it != particles_population_.end()) {
-    if ((*it)->get_quality() < 0.2 && particles_population_.size() > 1) {
+
+    bool low_quality = (*it)->get_quality() < 0.15;
+    bool very_low_quality = (*it)->get_quality() < 0.05;
+    bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
+    bool in_free = get_cost((*it)->get_pose().pose.pose) == nav2_costmap_2d::FREE_SPACE;
+
+    if (!in_free || very_low_quality || (low_quality && max_hypo_reached)){
       it = particles_population_.erase(it);
       if (current_amcl_ == *it) {
         current_amcl_ = particles_population_.front();
-        current_amcl_q_ = 0.4;
+        current_amcl_q_ = 0.25;
       }
     } else {
       ++it;
@@ -479,7 +476,7 @@ MH_AMCL_Node::manage_hypotesis()
   }
 
   for (const auto & amcl : particles_population_) {
-    if (amcl->get_quality() > 0.5 && amcl->get_quality() > (current_amcl_q_ + 0.2)) {
+    if (amcl->get_quality() > 0.6 && amcl->get_quality() > (current_amcl_q_ + 0.2)) {
       current_amcl_q_ = amcl->get_quality();
       current_amcl_ = amcl;
     }
@@ -506,6 +503,19 @@ MH_AMCL_Node::manage_hypotesis()
   }
   std::cerr << "=====================================" << std::endl;
 
+}
+
+unsigned char
+MH_AMCL_Node::get_cost(const geometry_msgs::msg::Pose & pose)
+{
+  unsigned int i, j;
+  costmap_->worldToMap(pose.position.x, pose.position.y, i, j);
+
+  if (i > 0 && j > 0 && i < costmap_->getSizeInCellsX() && j < costmap_->getSizeInCellsY()) {
+    return costmap_->getCost(i, j);
+  } else {
+    return nav2_costmap_2d::NO_INFORMATION;
+  }
 }
 
 void 
