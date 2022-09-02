@@ -55,6 +55,8 @@ mh_amcl:
     distance_perception_error: 0.01
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
+    multihypothesis: True
+    max_hypotheses: 5
 
 bt_navigator:
   ros__parameters:

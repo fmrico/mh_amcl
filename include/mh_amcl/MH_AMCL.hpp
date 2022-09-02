@@ -86,6 +86,11 @@ private:
   rclcpp::TimerBase::SharedPtr publish_particles_timer_;
   rclcpp::TimerBase::SharedPtr publish_position_timer_;
 
+  int max_hypotheses_;
+  bool multihypothesis_;
+
+  rclcpp::Time last_time_;
+
   std::list<std::shared_ptr<ParticlesDistribution>> particles_population_;
   std::shared_ptr<ParticlesDistribution> current_amcl_;
   float current_amcl_q_;

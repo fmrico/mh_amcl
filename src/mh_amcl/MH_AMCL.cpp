@@ -62,6 +62,9 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
     "initialpose", 100, std::bind(&MH_AMCL_Node::initpose_callback, this, _1));
   pose_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("amcl_pose", 1);
   particles_pub_ = create_publisher<nav2_msgs::msg::ParticleCloud>("particle_cloud", 1);
+
+  declare_parameter<int>("max_hypotheses", 5);
+  declare_parameter<bool>("multihypothesis", true);
 }
 
 using CallbackReturnT =
@@ -71,6 +74,9 @@ CallbackReturnT
 MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
 {
   RCLCPP_INFO(get_logger(), "Configuring...");
+
+  get_parameter("multihypothesis", multihypothesis_);
+  get_parameter("max_hypotheses", max_hypotheses_);
 
   current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this());
   current_amcl_q_ = 1.0;
@@ -206,6 +212,8 @@ MH_AMCL_Node::predict()
   if (tf_buffer_.canTransform("odom", "base_footprint", tf2::TimePointZero, &error)) {
     odom2bf_msg = tf_buffer_.lookupTransform("odom", "base_footprint", tf2::TimePointZero);
 
+    last_time_ = odom2bf_msg.header.stamp;
+
     tf2::Stamped<tf2::Transform> odom2bf;
     tf2::fromMsg(odom2bf_msg, odom2bf);
 
@@ -250,6 +258,9 @@ MH_AMCL_Node::correct()
   for (auto & particles : particles_population_) {
     particles->correct_once(*last_laser_, *costmap_);
   }
+
+  last_time_ = last_laser_->header.stamp;
+
   RCLCPP_DEBUG_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
 }
 
@@ -315,7 +326,7 @@ MH_AMCL_Node::publish_position()
   // Publish pose
   if (pose_pub_->get_subscription_count() > 0) {
     pose.header.frame_id = "map";
-    pose.header.stamp = now();
+    pose.header.stamp = last_time_;
     pose_pub_->publish(pose);
   }
 
@@ -323,7 +334,7 @@ MH_AMCL_Node::publish_position()
   if (particles_pub_->get_subscription_count() > 0) {
     nav2_msgs::msg::ParticleCloud particles_msgs;
     particles_msgs.header.frame_id = "map";
-    particles_msgs.header.stamp = now();
+    particles_msgs.header.stamp = last_time_;
 
     for (const auto & particle : current_amcl_->get_particles()) {
       nav2_msgs::msg::Particle p;
@@ -355,7 +366,7 @@ MH_AMCL_Node::publish_position()
 
     geometry_msgs::msg::TransformStamped transform;
     transform.header.frame_id = "map";
-    transform.header.stamp = now();
+    transform.header.stamp = last_time_;
     transform.child_frame_id = "odom";
 
     transform.transform = tf2::toMsg(map2odom);
@@ -386,12 +397,14 @@ MH_AMCL_Node::manage_hypotesis()
 {
   if (last_laser_ == nullptr || costmap_ == nullptr || matcher_ == nullptr) {return;}
 
+  if (!multihypothesis_) {return;}
+
   const auto & tfs = matcher_->get_matchs(*last_laser_);
 
   tf2::Transform selected;
   bool new_distr = false;
 
-
+  // Create new Hypothesis
   for (const auto & transform : tfs) {
     if (transform.weight > 0.8) {
       bool covered = false;
@@ -419,7 +432,7 @@ MH_AMCL_Node::manage_hypotesis()
     if (new_distr) {break;}
   }
 
-  if (new_distr) {
+  if (new_distr && particles_population_.size() < max_hypotheses_) {
     auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
     aux_distr->on_configure(get_current_state());
     aux_distr->init(selected);
@@ -471,8 +484,6 @@ MH_AMCL_Node::manage_hypotesis()
       current_amcl_ = amcl;
     }
   }
-
-
 
   bool is_selected = false;
   for (const auto & amcl : particles_population_) {
