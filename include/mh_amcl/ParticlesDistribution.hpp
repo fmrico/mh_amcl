@@ -76,7 +76,7 @@ public:
 
   void publish_particles(int base_idx, const std_msgs::msg::ColorRGBA & color) const;
   geometry_msgs::msg::PoseWithCovarianceStamped get_pose() const {return pose_;}
-  float get_quality() {return quality_;};
+  float get_quality() {return quality_;}
   void merge(ParticlesDistribution & other);
 
 protected:
@@ -126,6 +126,9 @@ protected:
   double distance_perception_error_;
   double reseed_percentage_losers_;
   double reseed_percentage_winners_;
+  float good_hypo_thereshold_;
+  float low_q_hypo_thereshold_;
+  int particles_step_;
 };
 
 double weighted_mean(const std::vector<double> & v, const std::vector<double> & w);

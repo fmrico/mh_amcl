@@ -12,8 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MH_AMCL__MAP_MATCHER_HPP_
-#define MH_AMCL__MAP_MATCHER_HPP_
+#ifndef MH_AMCL__MAPMATCHER_HPP_
+#define MH_AMCL__MAPMATCHER_HPP_
+
+#include <list>
+#include <memory>
+#include <vector>
 
 #include "tf2/transform_datatypes.h"
 #include "tf2/LinearMath/Transform.h"
@@ -29,7 +33,8 @@
 namespace mh_amcl
 {
 
-typedef struct {
+typedef struct
+{
   float weight;
   tf2::Transform transform;
 } TransformWeighted;
@@ -39,7 +44,7 @@ bool operator<(const TransformWeighted & tw1, const TransformWeighted & tw2);
 class MapMatcher
 {
 public:
-  MapMatcher(const nav_msgs::msg::OccupancyGrid & map);
+  explicit MapMatcher(const nav_msgs::msg::OccupancyGrid & map);
   std::list<TransformWeighted> get_matchs(const sensor_msgs::msg::LaserScan & scan);
 
 protected:
@@ -51,7 +56,8 @@ protected:
   std::list<TransformWeighted> get_matchs(
     int scale, const std::vector<tf2::Vector3> & scan,
     float min_x, float min_y, float max_y, float max_x);
-  float match(int scale, const nav2_costmap_2d::Costmap2D & costmap,
+  float match(
+    int scale, const nav2_costmap_2d::Costmap2D & costmap,
     const std::vector<tf2::Vector3> & scan, tf2::Transform & transform);
 
   std::vector<std::shared_ptr<nav2_costmap_2d::Costmap2D>> costmaps_;
@@ -61,4 +67,4 @@ nav_msgs::msg::OccupancyGrid toMsg(const nav2_costmap_2d::Costmap2D & costmap);
 
 }  // namespace mh_amcl
 
-#endif  // MH_AMCL__MH_AMCL_HPP_
+#endif  // MH_AMCL__MAPMATCHER_HPP_

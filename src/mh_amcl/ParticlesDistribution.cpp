@@ -86,6 +86,15 @@ ParticlesDistribution::ParticlesDistribution(
   if (!parent_node->has_parameter("reseed_percentage_winners")) {
     parent_node->declare_parameter("reseed_percentage_winners", 0.03);
   }
+  if (!parent_node->has_parameter("good_hypo_thereshold")) {
+    parent_node->declare_parameter("good_hypo_thereshold", 0.6);
+  }
+  if (!parent_node->has_parameter("good_hypo_thereshold")) {
+    parent_node->declare_parameter("low_q_hypo_thereshold", 0.25f);
+  }
+  if (!parent_node->has_parameter("particles_step")) {
+    parent_node->declare_parameter<int>("particles_step", 30);
+  }
 }
 
 using CallbackReturnT =
@@ -107,6 +116,9 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   parent_node_->get_parameter("distance_perception_error", distance_perception_error_);
   parent_node_->get_parameter("reseed_percentage_losers", reseed_percentage_losers_);
   parent_node_->get_parameter("reseed_percentage_winners", reseed_percentage_winners_);
+  parent_node_->get_parameter("low_q_hypo_thereshold", low_q_hypo_thereshold_);
+  parent_node_->get_parameter("good_hypo_thereshold", good_hypo_thereshold_);
+  parent_node_->get_parameter("particles_step", particles_step_);
 
   tf2::Transform init_pose;
   init_pose.setOrigin(tf2::Vector3(init_pos_x_, init_pos_y_, 0.0));
@@ -235,8 +247,8 @@ double angle_weighted_mean(const std::vector<double> & v, const std::vector<doub
   double x = 0.0;
   double y = 0.0;
   for (int i = 0; i < v.size(); i++) {
-    x += w[i] * cos(v[i]); 
-    y += w[i] * sin(v[i]); 
+    x += w[i] * cos(v[i]);
+    y += w[i] * sin(v[i]);
   }
 
   return atan2(y, x);
@@ -251,8 +263,8 @@ double angle_mean(const std::vector<double> & v)
   double x = 0.0;
   double y = 0.0;
   for (const auto & val : v) {
-    x += cos(val); 
-    y += sin(val); 
+    x += cos(val);
+    y += sin(val);
   }
 
   return atan2(y, x);
@@ -266,7 +278,9 @@ double mean(const std::vector<double> & v)
   return std::accumulate(v.begin(), v.end(), 0.0) / v.size();
 }
 
-double covariance(const std::vector<double> & v1, const std::vector<double> & v2, bool v1_is_angle, bool v2_is_angle)
+double covariance(
+  const std::vector<double> & v1, const std::vector<double> & v2,
+  bool v1_is_angle, bool v2_is_angle)
 {
   assert(v1.size() == v2.size());
 
@@ -493,7 +507,7 @@ ParticlesDistribution::correct_once(
   quality_ = 0.0;
   for (auto & p : particles_) {
     p.hits = p.hits / static_cast<float>(scan.ranges.size());
-    quality_ = std::max(quality_, p.hits); 
+    quality_ = std::max(quality_, p.hits);
   }
 }
 
@@ -580,17 +594,17 @@ ParticlesDistribution::reseed()
   double percentage_winners = reseed_percentage_winners_;
 
   auto number_particles = particles_.size();
-  if (get_quality() < 0.4) {
+  if (get_quality() < low_q_hypo_thereshold_) {
     number_particles = std::clamp(
-      static_cast<int>(number_particles + 20), min_particles_, max_particles_);
+      static_cast<int>(number_particles + particles_step_), min_particles_, max_particles_);
     int new_particles = number_particles - particles_.size();
     for (int i = 0; i < new_particles; i++) {
       Particle new_p = particles_.front();
       particles_.push_back(new_p);
     }
-  } else if (get_quality() > 0.6) {
+  } else if (get_quality() > good_hypo_thereshold_) {
     number_particles = std::clamp(
-      static_cast<int>(number_particles - 20), min_particles_, max_particles_);
+      static_cast<int>(number_particles - particles_step_), min_particles_, max_particles_);
     for (int i = 0; i < particles_.size() - number_particles; i++) {
       particles_.pop_back();
     }
@@ -603,9 +617,9 @@ ParticlesDistribution::reseed()
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
 
   std::normal_distribution<double> selector(0, number_winners);
-  std::normal_distribution<double> noise_x(0, 0.01);
-  std::normal_distribution<double> noise_y(0, 0.01);
-  std::normal_distribution<double> noise_t(0, 0.005);
+  std::normal_distribution<double> noise_x(0, init_error_x_ * init_error_x_);
+  std::normal_distribution<double> noise_y(0, init_error_y_ * init_error_y_);
+  std::normal_distribution<double> noise_t(0, init_error_yaw_ * init_error_yaw_);
 
   for (int i = 0; i < number_losers; i++) {
     int index = std::clamp(static_cast<int>(selector(generator_)), 0, number_winners);

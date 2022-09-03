@@ -33,8 +33,8 @@
 class MH_AMCL_NodeTest : public mh_amcl::MH_AMCL_Node
 {
 public:
-  MH_AMCL_NodeTest() : MH_AMCL_Node() {}
-
+  MH_AMCL_NodeTest()
+  : MH_AMCL_Node() {}
 };
 
 

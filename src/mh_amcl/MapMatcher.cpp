@@ -55,27 +55,31 @@ MapMatcher::half_scale(std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_in)
       auto cost2 = costmap_in->getCost(ri + 1, rj);
       auto cost3 = costmap_in->getCost(ri, rj + 1);
       auto cost4 = costmap_in->getCost(ri + 1, rj + 1);
-      
+
       if (cost1 == nav2_costmap_2d::LETHAL_OBSTACLE ||
-        cost2  == nav2_costmap_2d::LETHAL_OBSTACLE ||
-        cost3  == nav2_costmap_2d::LETHAL_OBSTACLE ||
-        cost4  == nav2_costmap_2d::LETHAL_OBSTACLE)
+        cost2 == nav2_costmap_2d::LETHAL_OBSTACLE ||
+        cost3 == nav2_costmap_2d::LETHAL_OBSTACLE ||
+        cost4 == nav2_costmap_2d::LETHAL_OBSTACLE)
       {
         costmap->setCost(i, j, nav2_costmap_2d::LETHAL_OBSTACLE);
-      } else if (cost1 == nav2_costmap_2d::FREE_SPACE ||
-        cost2  == nav2_costmap_2d::FREE_SPACE ||
-        cost3  == nav2_costmap_2d::FREE_SPACE ||
-        cost4  == nav2_costmap_2d::FREE_SPACE)
-      {
-        costmap->setCost(i, j, nav2_costmap_2d::FREE_SPACE);
-      } else if (cost1 == nav2_costmap_2d::NO_INFORMATION &&
-        cost2  == nav2_costmap_2d::NO_INFORMATION &&
-        cost3  == nav2_costmap_2d::NO_INFORMATION &&
-        cost4  == nav2_costmap_2d::NO_INFORMATION)
-      {
-        costmap->setCost(i, j, nav2_costmap_2d::NO_INFORMATION);
       } else {
-        costmap->setCost(i, j, cost1);
+        if (cost1 == nav2_costmap_2d::FREE_SPACE ||
+          cost2 == nav2_costmap_2d::FREE_SPACE ||
+          cost3 == nav2_costmap_2d::FREE_SPACE ||
+          cost4 == nav2_costmap_2d::FREE_SPACE)
+        {
+          costmap->setCost(i, j, nav2_costmap_2d::FREE_SPACE);
+        } else {
+          if (cost1 == nav2_costmap_2d::NO_INFORMATION &&
+            cost2 == nav2_costmap_2d::NO_INFORMATION &&
+            cost3 == nav2_costmap_2d::NO_INFORMATION &&
+            cost4 == nav2_costmap_2d::NO_INFORMATION)
+          {
+            costmap->setCost(i, j, nav2_costmap_2d::NO_INFORMATION);
+          } else {
+            costmap->setCost(i, j, cost1);
+          }
+        }
       }
     }
   }
@@ -93,15 +97,15 @@ MapMatcher::get_matchs(const sensor_msgs::msg::LaserScan & scan)
 
   double min_x, max_x, min_y, max_y;
   costmaps_[start_level]->mapToWorld(0, 0, min_x, min_y);
-  costmaps_[start_level]->mapToWorld(costmaps_[start_level]->getSizeInCellsX(), costmaps_[start_level]->getSizeInCellsY(), max_x, max_y);
+  costmaps_[start_level]->mapToWorld(
+    costmaps_[start_level]->getSizeInCellsX(),
+    costmaps_[start_level]->getSizeInCellsY(), max_x, max_y);
 
   std::list<TransformWeighted> candidates[NUM_LEVEL_SCALE_COSTMAP];
   candidates[start_level] = get_matchs(start_level, laser_poins, min_x, min_y, max_x, max_y);
   candidates[start_level].sort();
-  
-  for (int level = start_level; level >= min_level; level--) {
 
-    // std::cerr << "Level " << level << "\tcandidates: " << candidates[level].size() << "\tResolution: " << costmaps_[level]->getResolution() << std::endl;
+  for (int level = start_level; level >= min_level; level--) {
     for (const auto & candidate : candidates[level]) {
       double min_x, max_x, min_y, max_y;
       min_x = candidate.transform.getOrigin().x() - costmaps_[level]->getResolution() / 2.0;
@@ -111,12 +115,11 @@ MapMatcher::get_matchs(const sensor_msgs::msg::LaserScan & scan)
 
       auto new_candidates = get_matchs(level - 1, laser_poins, min_x, min_y, max_x, max_y);
 
-      // std::cerr << "\tAdding " << new_candidates.size() << " candidates in ([" <<  min_x << ", " << max_x << "] , ["  <<
-      //   min_y << ", " << max_y << "])" << std::endl;
-      candidates[level - 1].insert(candidates[level - 1].end(), new_candidates.begin(), new_candidates.end()); 
+      candidates[level - 1].insert(
+        candidates[level - 1].end(), new_candidates.begin(), new_candidates.end());
     }
   }
-  
+
   candidates[min_level].sort();
 
   return candidates[min_level];
@@ -149,7 +152,7 @@ MapMatcher::get_matchs(
           tw.transform = tf2::Transform(q, {x, y, 0.0});
 
           tw.weight = match(scale, *costmap, scan, tw.transform);
-          
+
           if (tw.weight > 0.5) {
             ret.push_back(tw);
           }
@@ -161,7 +164,8 @@ MapMatcher::get_matchs(
 }
 
 float
-MapMatcher::match(int scale, const nav2_costmap_2d::Costmap2D & costmap,
+MapMatcher::match(
+  int scale, const nav2_costmap_2d::Costmap2D & costmap,
   const std::vector<tf2::Vector3> & scan, tf2::Transform & transform)
 {
   int hits = 0;
@@ -170,20 +174,13 @@ MapMatcher::match(int scale, const nav2_costmap_2d::Costmap2D & costmap,
   for (int i = 0; i < scan.size(); i = i + scale) {
     tf2::Vector3 test_point = transform * scan[i];
     int gi, gj;
-    
+
     costmap.worldToMapNoBounds(test_point.x(), test_point.y(), gi, gj);
 
 
     if (gi > 0 && gj > 0 && gi < costmap.getSizeInCellsX() && gj < costmap.getSizeInCellsY() &&
       costmap.getCost(gi, gj) == nav2_costmap_2d::LETHAL_OBSTACLE)
     {
-      // if (transform.getOrigin().x() < -5.0 && transform.getOrigin().x() > -6.0  &&
-      //   transform.getOrigin().y() < -4.5 && transform.getOrigin().y() > -5.0) {
-      //   std::cerr << "Hit in (" << test_point.x() << ", " << test_point.y() << ")" << 
-      //   "{" << gi << ", " << gj << "}" << "[" <<  costmap.getSizeInCellsX() << " - " << costmap.getSizeInCellsY() << "]" <<
-      //   std::endl;
-      // }
-
       hits++;
     }
     total++;
@@ -195,10 +192,10 @@ MapMatcher::match(int scale, const nav2_costmap_2d::Costmap2D & costmap,
 std::vector<tf2::Vector3>
 MapMatcher::laser2points(const sensor_msgs::msg::LaserScan & scan)
 {
-  std::list<tf2::Vector3> points;  
+  std::list<tf2::Vector3> points;
   for (auto i = 0; i < scan.ranges.size(); i++) {
     if (std::isnan(scan.ranges[i]) || std::isinf(scan.ranges[i])) {continue;}
-    
+
     tf2::Vector3 p;
     float dist = scan.ranges[i];
     float theta = scan.angle_min + i * scan.angle_increment;
@@ -221,8 +218,8 @@ toMsg(const nav2_costmap_2d::Costmap2D & costmap)
 
   double wx, wy;
   costmap.mapToWorld(0, 0, wx, wy);
-  grid.info.origin.position.x = wx -  costmap.getResolution() / 2;
-  grid.info.origin.position.y = wy -  costmap.getResolution() / 2;
+  grid.info.origin.position.x = wx - costmap.getResolution() / 2;
+  grid.info.origin.position.y = wy - costmap.getResolution() / 2;
   grid.info.origin.position.z = 0.0;
   grid.info.origin.orientation.w = 1.0;
 

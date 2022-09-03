@@ -50,21 +50,21 @@ public:
   std::vector<rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr> pubs_;
 };
 
-TEST(test1, test_match)
+/*TEST(test1, test_match)
 {
   auto test_node = rclcpp::Node::make_shared("test_node");
   sensor_msgs::msg::LaserScan scan;
   nav_msgs::msg::OccupancyGrid grid;
 
   auto scan_sub = test_node->create_subscription<sensor_msgs::msg::LaserScan>(
-    "scan", 100, [&scan] (const sensor_msgs::msg::LaserScan::SharedPtr msg) {
+    "scan", 100, [&scan](const sensor_msgs::msg::LaserScan::SharedPtr msg) {
       scan = *msg;
     });
   auto grid_sub = test_node->create_subscription<nav_msgs::msg::OccupancyGrid>(
     "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
-    [&grid] (const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+    [&grid](const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
       grid = *msg;
-    });  
+    });
 
   auto start = test_node->now();
   rclcpp::Rate rate(100ms);
@@ -84,7 +84,7 @@ TEST(test1, test_match)
     const auto & y = transform.transform.getOrigin().y();
     double roll, pitch, yaw;
     tf2::Matrix3x3(transform.transform.getRotation()).getRPY(roll, pitch, yaw);
-     std::cerr << "(" << x << ", " << y << ", " << yaw << ")" << std::endl;
+    std::cerr << "(" << x << ", " << y << ", " << yaw << ")" << std::endl;
   }
   // start = test_node->now();
   // while ((test_node->now() - start).seconds() < 30.0) {
@@ -92,8 +92,7 @@ TEST(test1, test_match)
   //   rclcpp::spin_some(test_node);
   //   rate.sleep();
   // }
-
-}
+}*/
 
 int main(int argc, char * argv[])
 {

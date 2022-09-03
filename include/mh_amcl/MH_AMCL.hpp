@@ -15,13 +15,13 @@
 #ifndef MH_AMCL__MH_AMCL_HPP_
 #define MH_AMCL__MH_AMCL_HPP_
 
+#include <Eigen/Dense>
+#include <Eigen/LU>
+
 #include <mutex>
 #include <vector>
 #include <list>
 #include <memory>
-
-#include <Eigen/Dense>
-#include <Eigen/LU> 
 
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -69,10 +69,12 @@ protected:
   void publish_position();
   void manage_hypotesis();
 
-  void get_distances(const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
+  void get_distances(
+    const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
     double & dist_xy, double & dist_theta);
   unsigned char get_cost(const geometry_msgs::msg::Pose & pose);
   geometry_msgs::msg::Pose toMsg(const tf2::Transform & tf);
+
 private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_laser_;
@@ -89,6 +91,15 @@ private:
 
   int max_hypotheses_;
   bool multihypothesis_;
+  float min_candidate_weight_;
+  double min_candidate_distance_;
+  double min_candidate_angle_;
+  float low_q_hypo_thereshold_;
+  float very_low_q_hypo_thereshold_;
+  double hypo_merge_distance_;
+  double hypo_merge_angle_;
+  float good_hypo_thereshold_;
+  float min_hypo_diff_winner_;
 
   rclcpp::Time last_time_;
 

@@ -13,12 +13,12 @@
 // limitations under the License.
 
 
+#include <Eigen/Dense>
+#include <Eigen/LU>
+
 #include <algorithm>
 #include <cmath>
 #include <list>
-
-#include <Eigen/Dense>
-#include <Eigen/LU> 
 
 #include "tf2_ros/transform_listener.h"
 #include "tf2/LinearMath/Transform.h"
@@ -65,6 +65,15 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
 
   declare_parameter<int>("max_hypotheses", 5);
   declare_parameter<bool>("multihypothesis", true);
+  declare_parameter<float>("min_candidate_weight", 0.5f);
+  declare_parameter<double>("min_candidate_distance", 0.5);
+  declare_parameter<double>("min_candidate_angle", M_PI_2);
+  declare_parameter<float>("low_q_hypo_thereshold", 0.25f);
+  declare_parameter<float>("very_low_q_hypo_thereshold", 0.1);
+  declare_parameter<double>("hypo_merge_distance", 0.2);
+  declare_parameter<double>("hypo_merge_angle", 0.3);
+  declare_parameter<float>("good_hypo_thereshold", 0.6);
+  declare_parameter<float>("min_hypo_diff_winner", 0.2);
 }
 
 using CallbackReturnT =
@@ -77,6 +86,16 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
 
   get_parameter("multihypothesis", multihypothesis_);
   get_parameter("max_hypotheses", max_hypotheses_);
+  get_parameter("min_candidate_weight", min_candidate_weight_);
+  get_parameter("min_candidate_distance", min_candidate_distance_);
+  get_parameter("min_candidate_angle", min_candidate_angle_);
+  get_parameter("low_q_hypo_thereshold", low_q_hypo_thereshold_);
+  get_parameter("very_low_q_hypo_thereshold", very_low_q_hypo_thereshold_);
+  get_parameter("hypo_merge_distance", hypo_merge_distance_);
+  get_parameter("hypo_merge_angle", hypo_merge_angle_);
+  get_parameter("good_hypo_thereshold", good_hypo_thereshold_);
+  get_parameter("min_hypo_diff_winner", min_hypo_diff_winner_);
+
 
   current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this());
   current_amcl_q_ = 1.0;
@@ -403,7 +422,7 @@ MH_AMCL_Node::manage_hypotesis()
 
   // Create new Hypothesis
   for (const auto & transform : tfs) {
-    if (transform.weight > 0.5) {
+    if (transform.weight > min_candidate_weight_) {
       bool covered = false;
 
       for (const auto & distr : particles_population_) {
@@ -413,13 +432,12 @@ MH_AMCL_Node::manage_hypotesis()
         double dist, difft;
         get_distances(pose, posetf, dist, difft);
 
-        if (dist < 0.5 && difft < M_PI_2) {
+        if (dist < min_candidate_distance_ && difft < min_candidate_angle_) {
           covered = true;
         }
       }
 
       if (!covered && particles_population_.size() < max_hypotheses_) {
-        // std::cerr << "Started new in (" << transform.transform.getOrigin().x() << ", " <<  transform.transform.getOrigin().y() << ")" << std::endl;
         auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
         aux_distr->on_configure(get_current_state());
         aux_distr->init(transform.transform);
@@ -433,17 +451,16 @@ MH_AMCL_Node::manage_hypotesis()
 
   auto it = particles_population_.begin();
   while (it != particles_population_.end()) {
-
-    bool low_quality = (*it)->get_quality() < 0.15;
-    bool very_low_quality = (*it)->get_quality() < 0.05;
+    bool low_quality = (*it)->get_quality() < low_q_hypo_thereshold_;
+    bool very_low_quality = (*it)->get_quality() < very_low_q_hypo_thereshold_;
     bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
     bool in_free = get_cost((*it)->get_pose().pose.pose) == nav2_costmap_2d::FREE_SPACE;
 
-    if (!in_free || very_low_quality || (low_quality && max_hypo_reached)){
+    if (!in_free || very_low_quality || (low_quality && max_hypo_reached)) {
       it = particles_population_.erase(it);
       if (current_amcl_ == *it) {
         current_amcl_ = particles_population_.front();
-        current_amcl_q_ = 0.25;
+        current_amcl_q_ = low_q_hypo_thereshold_ + 0.1;
       }
     } else {
       ++it;
@@ -461,7 +478,7 @@ MH_AMCL_Node::manage_hypotesis()
 
       double dist_xy, dist_t;
       get_distances((*it1)->get_pose().pose.pose, (*it2)->get_pose().pose.pose, dist_xy, dist_t);
-      if (dist_xy < 0.2 && dist_t < 0.3) {
+      if (dist_xy < hypo_merge_distance_ && dist_t < hypo_merge_angle_) {
         (*it1)->merge(**it2);
         it2 = particles_population_.erase(it2);
         if (current_amcl_ == *it2) {
@@ -476,7 +493,9 @@ MH_AMCL_Node::manage_hypotesis()
   }
 
   for (const auto & amcl : particles_population_) {
-    if (amcl->get_quality() > 0.6 && amcl->get_quality() > (current_amcl_q_ + 0.2)) {
+    if (amcl->get_quality() > good_hypo_thereshold_ &&
+      amcl->get_quality() > (current_amcl_q_ + min_hypo_diff_winner_))
+    {
       current_amcl_q_ = amcl->get_quality();
       current_amcl_ = amcl;
     }
@@ -502,7 +521,6 @@ MH_AMCL_Node::manage_hypotesis()
     std::cerr << amcl->get_quality() << std::endl;
   }
   std::cerr << "=====================================" << std::endl;
-
 }
 
 unsigned char
@@ -518,8 +536,9 @@ MH_AMCL_Node::get_cost(const geometry_msgs::msg::Pose & pose)
   }
 }
 
-void 
-MH_AMCL_Node::get_distances(const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
+void
+MH_AMCL_Node::get_distances(
+  const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
   double & dist_xy, double & dist_theta)
 {
   double diff_x = pose1.position.x - pose2.position.x;

@@ -255,7 +255,7 @@ TEST(test1, test_reseed)
   auto [mean_y, stdev_y] = get_mean_stdev(pos_y);
   auto [mean_z, stdev_z] = get_mean_stdev(pos_z);
 
-  ASSERT_NEAR(mean_x, 0.0, 0.03);
+  ASSERT_NEAR(mean_x, 0.0, 0.04);
   ASSERT_NEAR(stdev_x, 0.1, 0.15);
   ASSERT_NEAR(mean_y, 0.0, 0.03);
   ASSERT_NEAR(stdev_y, 0.1, 0.15);
