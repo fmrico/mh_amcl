@@ -492,6 +492,8 @@ MH_AMCL_Node::manage_hypotesis()
     ++it1;
   }
 
+  current_amcl_q_ = current_amcl_->get_quality();
+
   for (const auto & amcl : particles_population_) {
     if (amcl->get_quality() > good_hypo_thereshold_ &&
       amcl->get_quality() > (current_amcl_q_ + min_hypo_diff_winner_))
