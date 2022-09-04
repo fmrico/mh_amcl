@@ -16,9 +16,6 @@ find_package(tf2)
 find_package(nav2_util)
 find_package(nav2_msgs)
 
-find_package(Ceres REQUIRED)
-find_package(PCL)
-
 set(dependencies
   rclcpp
   rclcpp_lifecycle

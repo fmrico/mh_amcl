@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "ceres/context.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/port.h"
-#include "ceres/types.h"
 
-#include "pcl/kdtree/kdtree_flann.h"
 #include "nav2_costmap_2d/cost_values.hpp"
 #include "nav2_costmap_2d/costmap_2d.hpp"
 

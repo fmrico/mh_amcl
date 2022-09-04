@@ -17,11 +17,11 @@ jobs:
       fail-fast: false
     steps:
       - name: Setup ROS 2
-        uses: ros-tooling/setup-ros@0.3.3
+        uses: ros-tooling/setup-ros@0.3.4
         with:
           required-ros-distributions: humble
       - name: build and test
-        uses: ros-tooling/action-ros-ci@0.2.5
+        uses: ros-tooling/action-ros-ci@0.2.6
         with:
           package-name: mh_amcl
           target-ros2-distro: humble
