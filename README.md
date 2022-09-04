@@ -28,7 +28,7 @@ We have included in this package launchers and other files that are usually in t
 
 * To run in the simulation with a real robot (Tiago):
   * `ros2 launch mh_amcl tiago_launch.py`
-  * If you don't have the robot, you can launch a demo ros2 bag with real data below: `ros2 bag play rosbag2_2022_09_01-11_42_10`
+  * If you don't have the robot, you can launch a demo ros2 bag with real data below: `ros2 bag play test/rosbag2_2022_09_01-11_42_10`
   
 ## Details
 
