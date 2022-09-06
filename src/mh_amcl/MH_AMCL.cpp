@@ -456,7 +456,7 @@ MH_AMCL_Node::manage_hypotesis()
     bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
     bool in_free = get_cost((*it)->get_pose().pose.pose) == nav2_costmap_2d::FREE_SPACE;
 
-    if (!in_free || very_low_quality || (low_quality && max_hypo_reached)) {
+    if (particles_population_.size() > 1 && (!in_free || very_low_quality || (low_quality && max_hypo_reached))) {
       it = particles_population_.erase(it);
       if (current_amcl_ == *it) {
         current_amcl_ = particles_population_.front();
