@@ -22,6 +22,7 @@
 
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
+#include "mh_amcl_msgs/msg/hypo_info.hpp"
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 #include "nav2_costmap_2d/cost_values.hpp"
@@ -130,6 +131,8 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   init(init_pose);
   quality_ = 0.25;
 
+  info_.quality = quality_;
+
   return CallbackReturnT::SUCCESS;
 }
 
@@ -181,6 +184,9 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
   pose.pose.pose.orientation.y = q.y();
   pose.pose.pose.orientation.z = q.z();
   pose.pose.pose.orientation.w = q.w();
+
+  info_.pose = pose.pose;
+  info_.num_part = particles_.size();
 }
 
 double
@@ -223,6 +229,9 @@ ParticlesDistribution::update_covariance(geometry_msgs::msg::PoseWithCovarianceS
       pose.pose.covariance[i * 6 + j] = covariance(vs[i], vs[j], is_i_angle, is_j_angle);
     }
   }
+
+
+  info_.uncertainty = pose.pose.covariance[0] + pose.pose.covariance[7] + pose.pose.covariance[35];  // x^2 + y^2 + t^2 
 }
 
 double weighted_mean(const std::vector<double> & v, const std::vector<double> & w)
@@ -372,9 +381,12 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
 void
 ParticlesDistribution::predict(const tf2::Transform & movement)
 {
+  auto start = parent_node_->now();
   for (auto & particle : particles_) {
     particle.pose = particle.pose * movement * add_noise(movement);
   }
+
+  info_.predict_time = parent_node_->now() - start;
   update_pose(pose_);
 }
 
@@ -455,6 +467,8 @@ void
 ParticlesDistribution::correct_once(
   const sensor_msgs::msg::LaserScan & scan, const nav2_costmap_2d::Costmap2D & costmap)
 {
+  auto start = parent_node_->now();
+
   std::string error;
   if (tf_buffer_.canTransform(
       scan.header.frame_id, "base_footprint", tf2_ros::fromMsg(scan.header.stamp), &error))
@@ -501,6 +515,8 @@ ParticlesDistribution::correct_once(
     }
   }
 
+  info_.correct_time = parent_node_->now() - start;
+
   normalize();
 
   // Calculate quality
@@ -509,6 +525,7 @@ ParticlesDistribution::correct_once(
     p.hits = p.hits / static_cast<float>(scan.ranges.size());
     quality_ = std::max(quality_, p.hits);
   }
+  info_.quality = quality_;
 }
 
 tf2::Transform
@@ -582,6 +599,8 @@ ParticlesDistribution::get_error_distance_to_obstacle(
 void
 ParticlesDistribution::reseed()
 {
+  auto start = parent_node_->now();
+
   // Sort particles by prob
   std::sort(
     particles_.begin(), particles_.end(),
@@ -652,6 +671,9 @@ ParticlesDistribution::reseed()
   }
 
   particles_ = new_particles;
+
+  info_.reseed_time = parent_node_->now() - start;
+
   normalize();
   update_covariance(pose_);
 }

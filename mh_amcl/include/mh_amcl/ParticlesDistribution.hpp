@@ -30,6 +30,9 @@
 #include "std_msgs/msg/color_rgba.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
+#include "mh_amcl_msgs/msg/hypo_info.hpp"
+
+
 #include "nav2_costmap_2d/costmap_2d.hpp"
 
 #include "rclcpp/rclcpp.hpp"
@@ -78,6 +81,8 @@ public:
   geometry_msgs::msg::PoseWithCovarianceStamped get_pose() const {return pose_;}
   float get_quality() {return quality_;}
   void merge(ParticlesDistribution & other);
+
+  const mh_amcl_msgs::msg::HypoInfo & get_info() const {return info_;} 
 
 protected:
   rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node_;
@@ -129,6 +134,9 @@ protected:
   float good_hypo_thereshold_;
   float low_q_hypo_thereshold_;
   int particles_step_;
+
+  // Experiments
+  mh_amcl_msgs::msg::HypoInfo info_;
 };
 
 double weighted_mean(const std::vector<double> & v, const std::vector<double> & w);

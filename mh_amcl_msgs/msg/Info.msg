@@ -1,0 +1,10 @@
+float32 quality
+float32 uncertainty
+
+geometry_msgs/PoseWithCovariance pose
+int32 num_part
+builtin_interfaces/Duration predict_time
+builtin_interfaces/Duration correct_time
+builtin_interfaces/Duration reseed_time
+
+mh_amcl_msgs/HypoInfo[] hypos

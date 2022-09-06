@@ -33,6 +33,7 @@
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "nav2_msgs/msg/particle_cloud.hpp"
 #include "nav2_msgs/msg/particle.hpp"
+#include "mh_amcl_msgs/msg/info.hpp"
 
 #include "nav2_costmap_2d/costmap_2d_publisher.hpp"
 #include "nav2_costmap_2d/cost_values.hpp"
@@ -62,6 +63,7 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
     "initialpose", 100, std::bind(&MH_AMCL_Node::initpose_callback, this, _1));
   pose_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("amcl_pose", 1);
   particles_pub_ = create_publisher<nav2_msgs::msg::ParticleCloud>("particle_cloud", 1);
+  info_pub_ = create_publisher<mh_amcl_msgs::msg::Info>("info", 1);
 
   declare_parameter<int>("max_hypotheses", 5);
   declare_parameter<bool>("multihypothesis", true);
@@ -248,6 +250,8 @@ MH_AMCL_Node::predict()
     odom2prevbf_ = odom2bf;
   }
 
+  info_.predict_time = now() - start;
+
   RCLCPP_DEBUG_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
 }
 
@@ -279,6 +283,7 @@ MH_AMCL_Node::correct()
   }
 
   last_time_ = last_laser_->header.stamp;
+  info_.correct_time = now() - start;
 
   RCLCPP_DEBUG_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
 }
@@ -291,6 +296,8 @@ MH_AMCL_Node::reseed()
   for (auto & particles : particles_population_) {
     particles->reseed();
   }
+
+  info_.reseed_time = now() - start;
 
   RCLCPP_DEBUG_STREAM(
     get_logger(), "==================Reseed [" << (now() - start).seconds() << " secs]");
@@ -393,6 +400,22 @@ MH_AMCL_Node::publish_position()
     tf_broadcaster_->sendTransform(transform);
   } else {
     RCLCPP_WARN(get_logger(), "Timeout TFs [%s]", error.c_str());
+  }
+
+
+  if (info_pub_->get_subscription_count() > 0) {
+    info_.hypos.clear();
+    for (const auto & hypo : particles_population_) {
+      info_.hypos.push_back(hypo->get_info());
+    }
+
+    const auto & info_selected = current_amcl_->get_info();
+    info_.quality = info_selected.quality;
+    info_.uncertainty = info_selected.uncertainty;
+    info_.pose = info_selected.pose;
+    info_.num_part = info_selected.num_part;
+
+    info_pub_->publish(info_);
   }
 }
 

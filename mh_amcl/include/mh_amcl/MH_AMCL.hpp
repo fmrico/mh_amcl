@@ -35,6 +35,7 @@
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "nav2_msgs/msg/particle_cloud.hpp"
+#include "mh_amcl_msgs/msg/info.hpp"
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 #include "mh_amcl/ParticlesDistribution.hpp"
@@ -81,6 +82,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_init_pose_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav2_msgs::msg::ParticleCloud>::SharedPtr particles_pub_;
+  rclcpp::Publisher<mh_amcl_msgs::msg::Info>::SharedPtr info_pub_;
 
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;
@@ -102,6 +104,7 @@ private:
   float min_hypo_diff_winner_;
 
   rclcpp::Time last_time_;
+  mh_amcl_msgs::msg::Info info_;
 
   std::list<std::shared_ptr<ParticlesDistribution>> particles_population_;
   std::shared_ptr<ParticlesDistribution> current_amcl_;
