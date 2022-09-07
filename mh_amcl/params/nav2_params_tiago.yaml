@@ -45,8 +45,8 @@ mh_amcl:
     max_particles: 200
     min_particles: 30
     particles_step: 30
-    init_pos_x: -2.0
-    init_pos_y: 2.0
+    init_pos_x: 0.0
+    init_pos_y: 0.0
     init_pos_yaw: 0.0
     init_error_x: 0.1
     init_error_y: 0.1
