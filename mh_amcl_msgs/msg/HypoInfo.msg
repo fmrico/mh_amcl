@@ -1,3 +1,4 @@
+int32 id
 float32 quality
 float32 uncertainty
 
