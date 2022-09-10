@@ -99,7 +99,7 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
   get_parameter("min_hypo_diff_winner", min_hypo_diff_winner_);
 
 
-  current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this());
+  current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this(), counter_++);
   current_amcl_q_ = 1.0;
 
   particles_population_.push_back(current_amcl_);
@@ -266,7 +266,6 @@ void
 MH_AMCL_Node::laser_callback(sensor_msgs::msg::LaserScan::UniquePtr lsr_msg)
 {
   last_laser_ = std::move(lsr_msg);
-  counter_ = 0;
 }
 
 void
@@ -324,7 +323,7 @@ MH_AMCL_Node::initpose_callback(
 
     particles_population_.clear();
     current_amcl_q_ = 1.0;
-    current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this());
+    current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this(), counter_++);
 
     particles_population_.push_back(current_amcl_);
     current_amcl_->on_configure(get_current_state());
@@ -409,11 +408,15 @@ MH_AMCL_Node::publish_position()
       info_.hypos.push_back(hypo->get_info());
     }
 
+    info_.header.stamp = last_time_;
+    info_.header.frame_id = "map";
+
     const auto & info_selected = current_amcl_->get_info();
     info_.quality = info_selected.quality;
     info_.uncertainty = info_selected.uncertainty;
     info_.pose = info_selected.pose;
     info_.num_part = info_selected.num_part;
+    info_.id = info_selected.id;
 
     info_pub_->publish(info_);
   }
@@ -461,7 +464,7 @@ MH_AMCL_Node::manage_hypotesis()
       }
 
       if (!covered && particles_population_.size() < max_hypotheses_) {
-        auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
+        auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this(), counter_++);
         aux_distr->on_configure(get_current_state());
         aux_distr->init(transform.transform);
         aux_distr->on_activate(get_current_state());
@@ -479,7 +482,9 @@ MH_AMCL_Node::manage_hypotesis()
     bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
     bool in_free = get_cost((*it)->get_pose().pose.pose) == nav2_costmap_2d::FREE_SPACE;
 
-    if (particles_population_.size() > 1 && (!in_free || very_low_quality || (low_quality && max_hypo_reached))) {
+    if (particles_population_.size() > 1 && (!in_free || very_low_quality ||
+      (low_quality && max_hypo_reached)))
+    {
       it = particles_population_.erase(it);
       if (current_amcl_ == *it) {
         current_amcl_ = particles_population_.front();

@@ -60,7 +60,8 @@ getColor(Color color_id, double alpha = 1.0);
 class ParticlesDistribution
 {
 public:
-  explicit ParticlesDistribution(rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node);
+  explicit ParticlesDistribution(
+    rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node, int id);
 
   void init(const tf2::Transform & pose_init);
   void predict(const tf2::Transform & movement);
@@ -82,7 +83,7 @@ public:
   float get_quality() {return quality_;}
   void merge(ParticlesDistribution & other);
 
-  const mh_amcl_msgs::msg::HypoInfo & get_info() const {return info_;} 
+  const mh_amcl_msgs::msg::HypoInfo & get_info() const {return info_;}
 
 protected:
   rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node_;

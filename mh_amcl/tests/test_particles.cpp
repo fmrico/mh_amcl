@@ -33,7 +33,7 @@ class ParticlesDistributionTest : public mh_amcl::ParticlesDistribution
 {
 public:
   ParticlesDistributionTest()
-  : ParticlesDistribution(rclcpp_lifecycle::LifecycleNode::make_shared("test_node")) {}
+  : ParticlesDistribution(rclcpp_lifecycle::LifecycleNode::make_shared("test_node"), 0) {}
 
   int get_num_particles() {return particles_.size();}
 
@@ -256,9 +256,9 @@ TEST(test1, test_reseed)
   auto [mean_z, stdev_z] = get_mean_stdev(pos_z);
 
   ASSERT_NEAR(mean_x, 0.0, 0.04);
-  ASSERT_NEAR(stdev_x, 0.1, 0.15);
+  ASSERT_NEAR(stdev_x, 0.1, 0.2);
   ASSERT_NEAR(mean_y, 0.0, 0.06);
-  ASSERT_NEAR(stdev_y, 0.1, 0.15);
+  ASSERT_NEAR(stdev_y, 0.1, 0.2);
   ASSERT_NEAR(mean_z, 0.0, 0.0001);
 }
 

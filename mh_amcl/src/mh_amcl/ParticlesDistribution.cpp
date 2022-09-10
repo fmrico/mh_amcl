@@ -38,7 +38,7 @@ namespace mh_amcl
 using namespace std::chrono_literals;
 
 ParticlesDistribution::ParticlesDistribution(
-  rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node)
+  rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node, int id)
 : parent_node_(parent_node),
   tf_buffer_(),
   tf_listener_(tf_buffer_),
@@ -96,6 +96,8 @@ ParticlesDistribution::ParticlesDistribution(
   if (!parent_node->has_parameter("particles_step")) {
     parent_node->declare_parameter<int>("particles_step", 30);
   }
+
+  info_.id = id;
 }
 
 using CallbackReturnT =
@@ -231,7 +233,8 @@ ParticlesDistribution::update_covariance(geometry_msgs::msg::PoseWithCovarianceS
   }
 
 
-  info_.uncertainty = pose.pose.covariance[0] + pose.pose.covariance[7] + pose.pose.covariance[35];  // x^2 + y^2 + t^2 
+  info_.uncertainty = pose.pose.covariance[0] + pose.pose.covariance[7] +
+    pose.pose.covariance[35];  // x^2 + y^2 + t^2
 }
 
 double weighted_mean(const std::vector<double> & v, const std::vector<double> & w)
