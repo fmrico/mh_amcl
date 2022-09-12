@@ -56,7 +56,7 @@ mh_amcl:
     distance_perception_error: 0.01
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
-    multihypothesis: True
+    multihypothesis: False
     max_hypotheses: 5
     min_candidate_weight: 0.5
     min_candidate_distance: 1.0
