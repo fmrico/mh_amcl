@@ -47,11 +47,11 @@ mh_amcl:
     init_pos_x: -2.0
     init_pos_y: -0.3
     init_pos_yaw: 0.0
-    init_error_x: 0.1
-    init_error_y: 0.1
-    init_error_yaw: 0.05
-    translation_noise: 0.1
-    rotation_noise: 0.05
+    init_error_x: 0.2
+    init_error_y: 0.2
+    init_error_yaw: 0.1
+    translation_noise: 0.2
+    rotation_noise: 0.1
     distance_perception_error: 0.01
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
