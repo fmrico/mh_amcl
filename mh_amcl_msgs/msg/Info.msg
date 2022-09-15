@@ -9,5 +9,6 @@ int32 num_part
 builtin_interfaces/Duration predict_time
 builtin_interfaces/Duration correct_time
 builtin_interfaces/Duration reseed_time
+builtin_interfaces/Duration mh_time
 
 mh_amcl_msgs/HypoInfo[] hypos
