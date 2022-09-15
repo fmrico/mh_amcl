@@ -419,6 +419,11 @@ MH_AMCL_Node::publish_position()
     info_.id = info_selected.id;
 
     info_pub_->publish(info_);
+
+    info_.predict_time = rclcpp::Duration(0s);
+    info_.correct_time = rclcpp::Duration(0s);
+    info_.reseed_time = rclcpp::Duration(0s);
+    info_.mh_time = rclcpp::Duration(0s);
   }
 }
 
@@ -443,6 +448,8 @@ MH_AMCL_Node::manage_hypotesis()
   if (last_laser_ == nullptr || costmap_ == nullptr || matcher_ == nullptr) {return;}
 
   if (!multihypothesis_) {return;}
+
+  auto start = now();
 
   const auto & tfs = matcher_->get_matchs(*last_laser_);
 
@@ -543,14 +550,16 @@ MH_AMCL_Node::manage_hypotesis()
     current_amcl_q_ = current_amcl_->get_quality();
   }
 
-  std::cerr << "=====================================" << std::endl;
-  for (const auto & amcl : particles_population_) {
-    if (amcl == current_amcl_) {
-      std::cerr << "->\t";
-    }
-    std::cerr << amcl->get_quality() << std::endl;
-  }
-  std::cerr << "=====================================" << std::endl;
+  //std::cerr << "=====================================" << std::endl;
+  //for (const auto & amcl : particles_population_) {
+  //  if (amcl == current_amcl_) {
+  //    std::cerr << "->\t";
+  //  }
+  //  std::cerr << amcl->get_quality() << std::endl;
+  //}
+  //std::cerr << "=====================================" << std::endl;
+
+  info_.mh_time = now() - start;
 }
 
 unsigned char
