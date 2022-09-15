@@ -27,7 +27,9 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     # Get the launch directory
+    bringup_dir_mh = get_package_share_directory('mh_amcl')
     bringup_dir = get_package_share_directory('mh_amcl')
+    # bringup_dir = get_package_share_directory('nav2_bringup')
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
     launch_dir = os.path.join(bringup_dir, 'launch')
     nav2_launch_dir = os.path.join(nav2_bringup_dir, 'launch')
@@ -66,7 +68,7 @@ def generate_launch_description():
     declare_map_yaml_cmd = DeclareLaunchArgument(
         'map',
         default_value=os.path.join(
-            bringup_dir, 'maps', 'aulario.yaml'),
+            bringup_dir_mh, 'maps', 'lab.yaml'),
         description='Full path to map file to load')
 
     declare_use_sim_time_cmd = DeclareLaunchArgument(
@@ -76,7 +78,7 @@ def generate_launch_description():
 
     declare_params_file_cmd = DeclareLaunchArgument(
         'params_file',
-        default_value=os.path.join(bringup_dir, 'params', 'nav2_params_tiago.yaml'),
+        default_value=os.path.join(bringup_dir_mh, 'params', 'nav2_params_tiago.yaml'),
         description='Full path to the ROS2 parameters file to use for all launched nodes')
 
     declare_autostart_cmd = DeclareLaunchArgument(
