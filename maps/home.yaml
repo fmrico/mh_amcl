@@ -1,0 +1,14 @@
+image: home.pgm
+mode: trinary
+resolution: 0.1
+origin: [-12, -15, 0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
+#  elevation layer
+elevation_image: home_ele.pgm
+min_height: -0.01
+max_height: 0
+#  octomap
+octomap_file: home_octo.ot
+binary: false
