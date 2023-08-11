@@ -40,6 +40,7 @@ add_library(${PROJECT_NAME}
   src/${PROJECT_NAME}/MH_AMCL.cpp
   src/${PROJECT_NAME}/MapMatcher.cpp
   src/${PROJECT_NAME}/ParticlesDistribution.cpp
+  src/${PROJECT_NAME}/LaserCorrecter.cpp
 )
 ament_target_dependencies(${PROJECT_NAME} ${dependencies})
 target_link_libraries(${PROJECT_NAME} ${CERES_LIBRARIES} ${PCL_LIBRARIES})

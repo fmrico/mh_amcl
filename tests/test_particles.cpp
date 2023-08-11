@@ -25,6 +25,8 @@
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 
+#include "mh_amcl/LaserCorrecter.hpp"
+
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 
@@ -39,6 +41,20 @@ public:
 
   rclcpp_lifecycle::LifecycleNode::SharedPtr get_parent() {return parent_node_;}
   std::vector<mh_amcl::Particle> & get_particles_test() {return particles_;}
+
+  void normalize_test() {normalize();}
+};
+
+class LaserCorrecterTest : public mh_amcl::LaserCorrecter
+{
+public:
+  LaserCorrecterTest(
+    nav2_util::LifecycleNode::SharedPtr node, const std::string & topic,
+    std::shared_ptr<nav2_costmap_2d::Costmap2D> map)
+  : LaserCorrecter(node, topic, map)
+  {
+  }
+
   tf2::Transform get_tranform_to_read_test(const sensor_msgs::msg::LaserScan & scan, int index)
   {
     return get_tranform_to_read(scan, index);
@@ -52,13 +68,13 @@ public:
     return get_error_distance_to_obstacle(map2bf, bf2laser, laser2point, scan, costmap, o);
   }
 
-  void normalize_test() {normalize();}
   unsigned char get_cost_test(
     const tf2::Transform & transform, const nav2_costmap_2d::Costmap2D & costmap)
   {
     return get_cost(transform, costmap);
   }
 };
+
 
 std::tuple<double, double> get_mean_stdev(std::vector<double> & values)
 {
@@ -304,12 +320,14 @@ TEST(test1, test_predict)
   ASSERT_NEAR(mean_z, 0.0, 0.0001);
 }
 
-TEST(test1, test_get_tranform_to_read)
+TEST(test1, test_laser_get_tranform_to_read)
 {
   ParticlesDistributionTest particle_dist;
   particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
+  LaserCorrecterTest laser_correcter(
+    nav2_util::LifecycleNode::make_shared("test"), "/scan", nullptr);
 
   sensor_msgs::msg::LaserScan scan;
   scan.header.frame_id = "laser";
@@ -319,11 +337,11 @@ TEST(test1, test_get_tranform_to_read)
   scan.angle_increment = M_PI_2;
   scan.ranges = {1.0, 2.0, 3.0, 4.0, 5.0};
 
-  tf2::Transform point_0 = particle_dist.get_tranform_to_read_test(scan, 0);
-  tf2::Transform point_1 = particle_dist.get_tranform_to_read_test(scan, 1);
-  tf2::Transform point_2 = particle_dist.get_tranform_to_read_test(scan, 2);
-  tf2::Transform point_3 = particle_dist.get_tranform_to_read_test(scan, 3);
-  tf2::Transform point_4 = particle_dist.get_tranform_to_read_test(scan, 4);
+  tf2::Transform point_0 = laser_correcter.get_tranform_to_read_test(scan, 0);
+  tf2::Transform point_1 = laser_correcter.get_tranform_to_read_test(scan, 1);
+  tf2::Transform point_2 = laser_correcter.get_tranform_to_read_test(scan, 2);
+  tf2::Transform point_3 = laser_correcter.get_tranform_to_read_test(scan, 3);
+  tf2::Transform point_4 = laser_correcter.get_tranform_to_read_test(scan, 4);
 
   ASSERT_NEAR(point_0.getOrigin().x(), -1.0, 0.0001);
   ASSERT_NEAR(point_0.getOrigin().y(), 0.0, 0.0001);
@@ -347,39 +365,39 @@ TEST(test1, test_get_tranform_to_read)
 }
 
 
-TEST(test1, test_get_cost)
+TEST(test1, test_laser_get_cost)
 {
   // Costmap with an obstacle in front and left
   unsigned int size_x = 400;
   unsigned int size_y = 400;
   double resolution = 0.01;
 
-  nav2_costmap_2d::Costmap2D costmap;
-  costmap.resizeMap(size_x, size_y, resolution, -2.0, -2.0);
+  auto costmap = std::make_shared<nav2_costmap_2d::Costmap2D>();
+  costmap->resizeMap(size_x, size_y, resolution, -2.0, -2.0);
 
   unsigned int index = 0;
   // initialize the costmap with static data
   for (unsigned int i = 0; i < size_y; ++i) {
     for (unsigned int j = 0; j < size_x; ++j) {
       unsigned int x, y;
-      costmap.indexToCells(index, x, y);
-      costmap.setCost(x, y, nav2_costmap_2d::FREE_SPACE);
+      costmap->indexToCells(index, x, y);
+      costmap->setCost(x, y, nav2_costmap_2d::FREE_SPACE);
       ++index;
     }
   }
 
   for (double x = -1.0; x < 1.0; x = x + (resolution / 2.0)) {
     unsigned int mx, my;
-    costmap.worldToMap(x, 1.0, mx, my);
-    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
-    costmap.worldToMap(x, -0.5, mx, my);
-    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap->worldToMap(x, 1.0, mx, my);
+    costmap->setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap->worldToMap(x, -0.5, mx, my);
+    costmap->setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
   for (double y = -0.5; y < 1.0; y = y + (resolution / 2.0)) {
     unsigned int mx, my;
-    costmap.worldToMap(0.75, y, mx, my);
-    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap->worldToMap(0.75, y, mx, my);
+    costmap->setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
   // Init particles to (x=0.0, y=0.0, t=90.0)
@@ -388,6 +406,9 @@ TEST(test1, test_get_cost)
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
+  LaserCorrecterTest laser_correcter(
+    nav2_util::LifecycleNode::make_shared("test"), "/scan", nullptr);
+
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
   init_rot.setRotation({0.0, 0.0, 0.707, 0.707});
@@ -395,27 +416,27 @@ TEST(test1, test_get_cost)
 
   unsigned int mx, my;
 
-  costmap.worldToMap(0.0, 0.0, mx, my);
-  ASSERT_EQ(costmap.getCost(mx, my), nav2_costmap_2d::FREE_SPACE);
-  costmap.worldToMap(0.75, 0.0, mx, my);
-  ASSERT_EQ(costmap.getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
-  costmap.worldToMap(0.0, -0.5, mx, my);
-  ASSERT_EQ(costmap.getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
-  costmap.worldToMap(0.0, 1.0, mx, my);
-  ASSERT_EQ(costmap.getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
+  costmap->worldToMap(0.0, 0.0, mx, my);
+  ASSERT_EQ(costmap->getCost(mx, my), nav2_costmap_2d::FREE_SPACE);
+  costmap->worldToMap(0.75, 0.0, mx, my);
+  ASSERT_EQ(costmap->getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
+  costmap->worldToMap(0.0, -0.5, mx, my);
+  ASSERT_EQ(costmap->getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
+  costmap->worldToMap(0.0, 1.0, mx, my);
+  ASSERT_EQ(costmap->getCost(mx, my), nav2_costmap_2d::LETHAL_OBSTACLE);
 
   tf2::Transform tf_test;
   tf_test.setOrigin({0.0, 0.0, 0.0});
-  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), nav2_costmap_2d::FREE_SPACE);
+  ASSERT_EQ(laser_correcter.get_cost_test(tf_test, *costmap), nav2_costmap_2d::FREE_SPACE);
   tf_test.setOrigin({0.75, 0.0, 0.0});
-  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(laser_correcter.get_cost_test(tf_test, *costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
   tf_test.setOrigin({0.0, -0.5, 0.0});
-  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(laser_correcter.get_cost_test(tf_test, *costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
   tf_test.setOrigin({0.0, 1.0, 0.0});
-  ASSERT_EQ(particle_dist.get_cost_test(tf_test, costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
+  ASSERT_EQ(laser_correcter.get_cost_test(tf_test, *costmap), nav2_costmap_2d::LETHAL_OBSTACLE);
 }
 
-TEST(test1, test_get_error_distance_to_obstacle)
+TEST(test1, test_laser_get_error_distance_to_obstacle)
 {
   auto test_node = rclcpp::Node::make_shared("test_node");
   // Costmap with an obstacle in front and left
@@ -423,32 +444,32 @@ TEST(test1, test_get_error_distance_to_obstacle)
   unsigned int size_y = 400;
   double resolution = 0.01;
 
-  nav2_costmap_2d::Costmap2D costmap;
-  costmap.resizeMap(size_x, size_y, resolution, -2.0, -2.0);
+  auto costmap = std::make_shared<nav2_costmap_2d::Costmap2D>();
+  costmap->resizeMap(size_x, size_y, resolution, -2.0, -2.0);
 
   unsigned int index = 0;
   // initialize the costmap with static data
   for (unsigned int i = 0; i < size_y; ++i) {
     for (unsigned int j = 0; j < size_x; ++j) {
       unsigned int x, y;
-      costmap.indexToCells(index, x, y);
-      costmap.setCost(x, y, nav2_costmap_2d::FREE_SPACE);
+      costmap->indexToCells(index, x, y);
+      costmap->setCost(x, y, nav2_costmap_2d::FREE_SPACE);
       ++index;
     }
   }
 
   for (double x = -1.0; x < 1.0; x = x + (resolution / 2.0)) {
     unsigned int mx, my;
-    costmap.worldToMap(x, 1.0, mx, my);
-    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
-    costmap.worldToMap(x, -0.5, mx, my);
-    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap->worldToMap(x, 1.0, mx, my);
+    costmap->setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap->worldToMap(x, -0.5, mx, my);
+    costmap->setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
   for (double y = -0.5; y < 1.0; y = y + (resolution / 2.0)) {
     unsigned int mx, my;
-    costmap.worldToMap(0.75, y, mx, my);
-    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap->worldToMap(0.75, y, mx, my);
+    costmap->setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
 
@@ -466,6 +487,9 @@ TEST(test1, test_get_error_distance_to_obstacle)
   particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
+
+  LaserCorrecterTest laser_correcter(
+    nav2_util::LifecycleNode::make_shared("test"), "/scan", nullptr);
 
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
@@ -506,13 +530,13 @@ TEST(test1, test_get_error_distance_to_obstacle)
   // Real tests
   {
     tf2::Transform laser2point;
-    laser2point = particle_dist.get_tranform_to_read_test(scan, 0);
+    laser2point = laser_correcter.get_tranform_to_read_test(scan, 0);
 
     ASSERT_NEAR(laser2point.getOrigin().x(), -0.54, 0.0001);
     ASSERT_NEAR(laser2point.getOrigin().y(), 0.00, 0.0001);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(
-      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
+    double distance = laser_correcter.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, *costmap, 0.02);
 
     ASSERT_FALSE(std::isinf(distance));
     ASSERT_NEAR(distance, 0.05, 0.0001);
@@ -520,13 +544,13 @@ TEST(test1, test_get_error_distance_to_obstacle)
 
   {
     tf2::Transform laser2point;
-    laser2point = particle_dist.get_tranform_to_read_test(scan, 1);
+    laser2point = laser_correcter.get_tranform_to_read_test(scan, 1);
 
     ASSERT_NEAR(laser2point.getOrigin().x(), 0.0, 0.0001);
     ASSERT_NEAR(laser2point.getOrigin().y(), -0.76, 0.0001);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(
-      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
+    double distance = laser_correcter.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, *costmap, 0.02);
 
     ASSERT_FALSE(std::isinf(distance));
     ASSERT_NEAR(distance, 0.0, 0.0001);
@@ -534,13 +558,13 @@ TEST(test1, test_get_error_distance_to_obstacle)
 
   {
     tf2::Transform laser2point;
-    laser2point = particle_dist.get_tranform_to_read_test(scan, 2);
+    laser2point = laser_correcter.get_tranform_to_read_test(scan, 2);
 
     ASSERT_NEAR(laser2point.getOrigin().x(), 1.0, 0.0001);
     ASSERT_NEAR(laser2point.getOrigin().y(), 0.0, 0.0001);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(
-      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
+    double distance = laser_correcter.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, *costmap, 0.02);
 
     ASSERT_FALSE(std::isinf(distance));
     ASSERT_NEAR(distance, 0.0, 0.0001);
@@ -548,20 +572,20 @@ TEST(test1, test_get_error_distance_to_obstacle)
 
   {
     tf2::Transform laser2point;
-    laser2point = particle_dist.get_tranform_to_read_test(scan, 3);
+    laser2point = laser_correcter.get_tranform_to_read_test(scan, 3);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(
-      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
+    double distance = laser_correcter.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, *costmap, 0.02);
 
     ASSERT_TRUE(std::isinf(distance));
   }
 
   {
     tf2::Transform laser2point;
-    laser2point = particle_dist.get_tranform_to_read_test(scan, 4);
+    laser2point = laser_correcter.get_tranform_to_read_test(scan, 4);
 
-    double distance = particle_dist.get_error_distance_to_obstacle_test(
-      map2bf, bf2lasert, laser2point, scan, costmap, 0.02);
+    double distance = laser_correcter.get_error_distance_to_obstacle_test(
+      map2bf, bf2lasert, laser2point, scan, *costmap, 0.02);
 
     ASSERT_TRUE(std::isinf(distance));
   }
@@ -599,38 +623,37 @@ TEST(test1, normalize)
     });
 }
 
-
-TEST(test1, test_correct)
+TEST(test1, test_laser_correct)
 {
   // Costmap with an obstacle in (1, 0)
   unsigned int size_x = 400;
   unsigned int size_y = 400;
   double resolution = 0.01;
 
-  nav2_costmap_2d::Costmap2D costmap;
-  costmap.resizeMap(size_x, size_y, resolution, -2.0, -2.0);
+  auto costmap = std::make_shared<nav2_costmap_2d::Costmap2D>();
+  costmap->resizeMap(size_x, size_y, resolution, -2.0, -2.0);
 
   unsigned int index = 0;
   // initialize the costmap with static data
   for (unsigned int i = 0; i < size_y; ++i) {
     for (unsigned int j = 0; j < size_x; ++j) {
       unsigned int x, y;
-      costmap.indexToCells(index, x, y);
-      costmap.setCost(x, y, nav2_costmap_2d::FREE_SPACE);
+      costmap->indexToCells(index, x, y);
+      costmap->setCost(x, y, nav2_costmap_2d::FREE_SPACE);
       ++index;
     }
   }
 
   for (double x = -1.0; x < 1.0; x = x + resolution) {
     unsigned int mx, my;
-    costmap.worldToMap(x, 1.0, mx, my);
-    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap->worldToMap(x, 1.0, mx, my);
+    costmap->setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
   for (double y = -1.0; y < 1.0; y = y + resolution) {
     unsigned int mx, my;
-    costmap.worldToMap(1.0, y, mx, my);
-    costmap.setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
+    costmap->worldToMap(1.0, y, mx, my);
+    costmap->setCost(mx, my, nav2_costmap_2d::LETHAL_OBSTACLE);
   }
 
   auto test_node = rclcpp_lifecycle::LifecycleNode::make_shared("test_node");
@@ -674,7 +697,14 @@ TEST(test1, test_correct)
     std::numeric_limits<float>::infinity()};
   // Here we should set perception noise to 0.0 to avoid random errors
 
-  particle_dist.correct_once(scan, costmap);
+  auto node = nav2_util::LifecycleNode::make_shared("aux_node");
+  mh_amcl::LaserCorrecter correcter(node, "/scan", costmap);
+  correcter.set_last_perception(scan);
+
+  rclcpp::Time last_time;
+  particle_dist.correct_once({&correcter}, last_time);
+
+  ASSERT_EQ(last_time, scan.header.stamp);
 
   ASSERT_GT(particle_dist.get_quality(), 0.3);
 

@@ -38,7 +38,9 @@
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 #include "mh_amcl/ParticlesDistribution.hpp"
+
 #include "mh_amcl/MapMatcher.hpp"
+#include "mh_amcl/Correcter.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
@@ -77,7 +79,6 @@ protected:
 
 private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
-  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_laser_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_init_pose_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav2_msgs::msg::ParticleCloud>::SharedPtr particles_pub_;
@@ -117,6 +118,8 @@ private:
   std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_;
   sensor_msgs::msg::LaserScan::UniquePtr last_laser_;
   std::shared_ptr<mh_amcl::MapMatcher> matcher_;
+
+  std::list<CorrecterBase*> correcters_;
 
   void map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
   void laser_callback(sensor_msgs::msg::LaserScan::UniquePtr lsr_msg);

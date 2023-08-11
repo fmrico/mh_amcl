@@ -37,6 +37,7 @@
 #include "nav2_costmap_2d/costmap_2d_publisher.hpp"
 #include "nav2_costmap_2d/cost_values.hpp"
 
+#include "mh_amcl/LaserCorrecter.hpp"
 #include "mh_amcl/MH_AMCL.hpp"
 
 #include "rclcpp/rclcpp.hpp"
@@ -53,8 +54,6 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   tf_buffer_(),
   tf_listener_(tf_buffer_)
 {
-  sub_laser_ = create_subscription<sensor_msgs::msg::LaserScan>(
-    "scan", rclcpp::QoS(100).best_effort(), std::bind(&MH_AMCL_Node::laser_callback, this, _1));
   sub_map_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
     "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
     std::bind(&MH_AMCL_Node::map_callback, this, _1));
@@ -74,6 +73,9 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   declare_parameter<double>("hypo_merge_angle", 0.3);
   declare_parameter<float>("good_hypo_thereshold", 0.6);
   declare_parameter<float>("min_hypo_diff_winner", 0.2);
+  
+  std::vector<std::string> correction_sources;
+  declare_parameter("correction_sources", correction_sources);
 }
 
 using CallbackReturnT =
@@ -96,6 +98,29 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
   get_parameter("good_hypo_thereshold", good_hypo_thereshold_);
   get_parameter("min_hypo_diff_winner", min_hypo_diff_winner_);
 
+  std::vector<std::string> correction_sources;
+  get_parameter("correction_sources", correction_sources);
+
+  for (const auto & correction_source : correction_sources) {
+    std::string correction_source_type;
+    declare_parameter(correction_source + ".type", correction_source_type);
+    get_parameter(correction_source + ".type", correction_source_type);
+
+    if (correction_source_type == "laser") {
+      std::string correction_source_topic;
+      declare_parameter(correction_source + ".topic", correction_source_topic);
+      get_parameter(correction_source + ".topic", correction_source_topic);
+
+      auto correcter = new LaserCorrecter(shared_from_this(), correction_source_topic, costmap_);
+      correcter->type_ = correction_source_type;
+
+      correcters_.push_back(correcter);
+      RCLCPP_INFO(
+        get_logger(), "Created corrected [%s] (type [%s], topic [%s])",
+        correction_source.c_str(), correction_source_type.c_str(),
+        correction_source_topic.c_str());
+    }
+  }
 
   current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this());
   current_amcl_q_ = 1.0;
@@ -270,15 +295,9 @@ MH_AMCL_Node::correct()
 {
   auto start = now();
 
-  if (last_laser_ == nullptr || last_laser_->ranges.empty() || costmap_ == nullptr) {
-    return;
-  }
-
   for (auto & particles : particles_population_) {
-    particles->correct_once(*last_laser_, *costmap_);
+    particles->correct_once(correcters_, last_time_);
   }
-
-  last_time_ = last_laser_->header.stamp;
 
   RCLCPP_DEBUG_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
 }
@@ -336,10 +355,6 @@ MH_AMCL_Node::initpose_callback(
 void
 MH_AMCL_Node::publish_position()
 {
-  if (costmap_ == nullptr || last_laser_ == nullptr) {
-    return;
-  }
-
   geometry_msgs::msg::PoseWithCovarianceStamped pose = current_amcl_->get_pose();
 
   // Publish pose
@@ -394,6 +409,8 @@ MH_AMCL_Node::publish_position()
   } else {
     RCLCPP_WARN(get_logger(), "Timeout TFs [%s]", error.c_str());
   }
+  std::cerr << "4" << std::endl;
+
 }
 
 geometry_msgs::msg::Pose

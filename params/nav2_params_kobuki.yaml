@@ -67,6 +67,10 @@ mh_amcl:
     hypo_merge_angle: 0.5
     good_hypo_thereshold: 0.5
     min_hypo_diff_winner: 0.3
+    correction_sources: ['laser_0']
+    laser_0:
+      type: laser
+      topic: /scan
 
 bt_navigator:
   ros__parameters:

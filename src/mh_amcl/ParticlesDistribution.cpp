@@ -21,10 +21,6 @@
 #include <numeric>
 
 #include "visualization_msgs/msg/marker_array.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
-
-#include "nav2_costmap_2d/costmap_2d.hpp"
-#include "nav2_costmap_2d/cost_values.hpp"
 
 #include "mh_amcl/ParticlesDistribution.hpp"
 
@@ -77,9 +73,6 @@ ParticlesDistribution::ParticlesDistribution(
   if (!parent_node->has_parameter("rotation_noise")) {
     parent_node->declare_parameter("rotation_noise", 0.01);
   }
-  if (!parent_node->has_parameter("distance_perception_error")) {
-    parent_node->declare_parameter("distance_perception_error", 0.05);
-  }
   if (!parent_node->has_parameter("reseed_percentage_losers")) {
     parent_node->declare_parameter("reseed_percentage_losers", 0.8);
   }
@@ -113,7 +106,6 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   parent_node_->get_parameter("init_error_yaw", init_error_yaw_);
   parent_node_->get_parameter("translation_noise", translation_noise_);
   parent_node_->get_parameter("rotation_noise", rotation_noise_);
-  parent_node_->get_parameter("distance_perception_error", distance_perception_error_);
   parent_node_->get_parameter("reseed_percentage_losers", reseed_percentage_losers_);
   parent_node_->get_parameter("reseed_percentage_winners", reseed_percentage_winners_);
   parent_node_->get_parameter("low_q_hypo_thereshold", low_q_hypo_thereshold_);
@@ -452,52 +444,18 @@ ParticlesDistribution::publish_particles(int base_idx, const std_msgs::msg::Colo
 }
 
 void
-ParticlesDistribution::correct_once(
-  const sensor_msgs::msg::LaserScan & scan, const nav2_costmap_2d::Costmap2D & costmap)
+ParticlesDistribution::correct_once(const std::list<CorrecterBase*> & correcters, rclcpp::Time & update_time)
 {
-  std::string error;
-  if (tf_buffer_.canTransform(
-      scan.header.frame_id, "base_footprint", tf2_ros::fromMsg(scan.header.stamp), &error))
-  {
-    auto bf2laser_msg = tf_buffer_.lookupTransform(
-      "base_footprint", scan.header.frame_id, tf2_ros::fromMsg(scan.header.stamp));
-    tf2::fromMsg(bf2laser_msg, bf2laser_);
-  } else {
-    RCLCPP_WARN(
-      parent_node_->get_logger(), "Timeout while waiting TF %s -> base_footprint [%s]",
-      scan.header.frame_id.c_str(), error.c_str());
-    return;
-  }
-
-  const double o = distance_perception_error_;
-
-  static const float inv_sqrt_2pi = 0.3989422804014327;
-  const double normal_comp_1 = inv_sqrt_2pi / o;
-
   for (auto & p : particles_) {
     p.hits = 0.0;
+    p.possible_hits = 0.0;
   }
 
-  for (int j = 0; j < scan.ranges.size(); j++) {
-    if (std::isnan(scan.ranges[j]) || std::isinf(scan.ranges[j])) {continue;}
-
-    tf2::Transform laser2point = get_tranform_to_read(scan, j);
-
-    for (int i = 0; i < particles_.size(); i++) {
-      auto & p = particles_[i];
-
-      double calculated_distance = get_error_distance_to_obstacle(
-        p.pose, bf2laser_, laser2point, scan, costmap, o);
-
-      if (!std::isinf(calculated_distance)) {
-        const double a = calculated_distance / o;
-        const double normal_comp_2 = std::exp(-0.5 * a * a);
-
-        double prob = std::clamp(normal_comp_1 * normal_comp_2, 0.0, 1.0);
-        p.prob = std::max(p.prob + prob, 0.000001);
-
-        p.hits += prob;
-      }
+  for (const auto & correcter : correcters) {
+    if (correcter->type_ == "laser") {
+      auto * correcter_casted =
+        dynamic_cast<Correcter<sensor_msgs::msg::LaserScan, nav2_costmap_2d::Costmap2D>*>(correcter);
+      correcter_casted->correct(particles_, update_time);
     }
   }
 
@@ -506,77 +464,9 @@ ParticlesDistribution::correct_once(
   // Calculate quality
   quality_ = 0.0;
   for (auto & p : particles_) {
-    p.hits = p.hits / static_cast<float>(scan.ranges.size());
+    p.hits = p.hits / p.possible_hits;
     quality_ = std::max(quality_, p.hits);
   }
-}
-
-tf2::Transform
-ParticlesDistribution::get_tranform_to_read(const sensor_msgs::msg::LaserScan & scan, int index)
-{
-  double dist = scan.ranges[index];
-  double angle = scan.angle_min + static_cast<double>(index) * scan.angle_increment;
-
-  tf2::Transform ret;
-
-  double x = dist * cos(angle);
-  double y = dist * sin(angle);
-
-  ret.setOrigin({x, y, 0.0});
-  ret.setRotation({0.0, 0.0, 0.0, 1.0});
-
-  return ret;
-}
-
-unsigned char
-ParticlesDistribution::get_cost(
-  const tf2::Transform & transform, const nav2_costmap_2d::Costmap2D & costmap)
-{
-  unsigned int mx, my;
-  if (costmap.worldToMap(transform.getOrigin().x(), transform.getOrigin().y(), mx, my)) {
-    return costmap.getCost(mx, my);
-  } else {
-    return nav2_costmap_2d::NO_INFORMATION;
-  }
-}
-
-double
-ParticlesDistribution::get_error_distance_to_obstacle(
-  const tf2::Transform & map2bf, const tf2::Transform & bf2laser,
-  const tf2::Transform & laser2point, const sensor_msgs::msg::LaserScan & scan,
-  const nav2_costmap_2d::Costmap2D & costmap, double o)
-{
-  if (std::isinf(laser2point.getOrigin().x()) || std::isnan(laser2point.getOrigin().x())) {
-    return std::numeric_limits<double>::infinity();
-  }
-
-  tf2::Transform map2laser = map2bf * bf2laser;
-  tf2::Transform map2point = map2laser * laser2point;
-  tf2::Transform map2point_aux = map2point;
-  tf2::Transform uvector;
-  tf2::Vector3 unit = laser2point.getOrigin() / laser2point.getOrigin().length();
-
-  if (get_cost(map2point, costmap) == nav2_costmap_2d::LETHAL_OBSTACLE) {return 0.0;}
-
-  float dist = costmap.getResolution();
-  while (dist < (3.0 * o)) {
-    uvector.setOrigin(unit * dist);
-    // For positive
-    map2point = map2point_aux * uvector;
-    auto cost = get_cost(map2point, costmap);
-
-    if (cost == nav2_costmap_2d::LETHAL_OBSTACLE) {return dist;}
-
-    // For negative
-    uvector.setOrigin(uvector.getOrigin() * -1.0);
-    map2point = map2point_aux * uvector;
-    cost = get_cost(map2point, costmap);
-
-    if (cost == nav2_costmap_2d::LETHAL_OBSTACLE) {return dist;}
-    dist = dist + costmap.getResolution();
-  }
-
-  return std::numeric_limits<double>::infinity();
 }
 
 void

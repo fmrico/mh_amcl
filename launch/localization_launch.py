@@ -119,7 +119,9 @@ def generate_launch_description():
                 respawn=use_respawn,
                 respawn_delay=2.0,
                 parameters=[configured_params],
-                remappings=remappings),
+                remappings=remappings,
+                # prefix=['xterm -e gdb -ex run --args']
+            ),
             Node(
                 package='nav2_lifecycle_manager',
                 executable='lifecycle_manager',

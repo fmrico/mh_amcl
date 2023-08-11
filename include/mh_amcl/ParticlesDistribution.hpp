@@ -32,24 +32,14 @@
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 
+#include "mh_amcl/Types.hpp"
+#include "mh_amcl/Correcter.hpp"
+
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 
 namespace mh_amcl
 {
-
-typedef struct
-{
-  tf2::Transform pose;
-  double prob;
-  float hits;
-} Particle;
-
-typedef enum TColor
-{
-  RED, GREEN, BLUE, WHITE, GREY, DARK_GREY, BLACK, YELLOW, ORANGE, BROWN, PINK,
-  LIME_GREEN, PURPLE, CYAN, MAGENTA, NUM_COLORS
-} Color;
 
 std_msgs::msg::ColorRGBA
 getColor(Color color_id, double alpha = 1.0);
@@ -61,8 +51,7 @@ public:
 
   void init(const tf2::Transform & pose_init);
   void predict(const tf2::Transform & movement);
-  void correct_once(
-    const sensor_msgs::msg::LaserScan & scan, const nav2_costmap_2d::Costmap2D & costmap);
+  void correct_once(const std::list<CorrecterBase*> & correcters, rclcpp::Time & update_time);
   void reseed();
   const std::vector<mh_amcl::Particle> & get_particles() const {return particles_;}
 
@@ -85,14 +74,7 @@ protected:
     pub_particles_;
 
   tf2::Transform add_noise(const tf2::Transform & dm);
-  tf2::Transform get_tranform_to_read(const sensor_msgs::msg::LaserScan & scan, int index);
-  double get_error_distance_to_obstacle(
-    const tf2::Transform & map2bf, const tf2::Transform & bf2laser,
-    const tf2::Transform & laser2point, const sensor_msgs::msg::LaserScan & scan,
-    const nav2_costmap_2d::Costmap2D & costmap, double o);
-  unsigned char get_cost(
-    const tf2::Transform & transform,
-    const nav2_costmap_2d::Costmap2D & costmap);
+
   void normalize();
   double normalize_angle(double angle);
   void update_pose(geometry_msgs::msg::PoseWithCovarianceStamped & pose);
@@ -123,7 +105,6 @@ protected:
   double init_error_yaw_;
   double translation_noise_;
   double rotation_noise_;
-  double distance_perception_error_;
   double reseed_percentage_losers_;
   double reseed_percentage_winners_;
   float good_hypo_thereshold_;
