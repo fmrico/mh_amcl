@@ -14,6 +14,7 @@
 
 
 #include "mh_amcl/Types.hpp"
+#include "mh_amcl/Utils.hpp"
 #include "mh_amcl/LaserCorrecter.hpp"
 
 #include <tf2_ros/transform_listener.h>
@@ -22,8 +23,7 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
-#include "nav2_costmap_2d/costmap_2d.hpp"
-#include "nav2_costmap_2d/cost_values.hpp"
+#include "octomap/octomap.h"
 
 #include "nav2_util/lifecycle_node.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -33,8 +33,8 @@ namespace mh_amcl
 
 LaserCorrecter::LaserCorrecter(
     nav2_util::LifecycleNode::SharedPtr node, const std::string & topic,
-    std::shared_ptr<nav2_costmap_2d::Costmap2D> & map)
-: Correcter<sensor_msgs::msg::LaserScan, nav2_costmap_2d::Costmap2D>(node, topic, map)
+    std::shared_ptr<octomap::OcTree> & map)
+: Correcter<sensor_msgs::msg::LaserScan, octomap::OcTree>(node, topic, map)
 {
   if (!node->has_parameter("distance_perception_error")) {
     node->declare_parameter("distance_perception_error", 0.05);
@@ -54,7 +54,6 @@ LaserCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & update
   }
 
   tf2::Stamped<tf2::Transform> bf2laser;
-
   std::string error;
   if (tf_buffer_.canTransform(
       last_perception_->header.frame_id, "base_footprint",
@@ -71,35 +70,45 @@ LaserCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & update
     return;
   }
 
-
   const double o = distance_perception_error_;
 
   static const float inv_sqrt_2pi = 0.3989422804014327;
   const double normal_comp_1 = inv_sqrt_2pi / o;
 
-  for (auto & p : particles) {
-    p.possible_hits += static_cast<float>(last_perception_->ranges.size());
-  }
+  // for (auto & p : particles) {
+  //   p.possible_hits += static_cast<float>(last_perception_->ranges.size());
+  // }
 
   for (int j = 0; j < last_perception_->ranges.size(); j++) {
-    if (std::isnan(last_perception_->ranges[j]) || std::isinf(last_perception_->ranges[j])) {continue;}
+    if (std::isnan(last_perception_->ranges[j])) {continue;}
 
-    tf2::Transform laser2point = get_tranform_to_read(*last_perception_, j);
+    tf2::Vector3 laser2point_u = get_perception_unit_vector(*last_perception_, j);
 
     for (int i = 0; i < particles.size(); i++) {
       auto & p = particles[i];
 
-      double calculated_distance = get_error_distance_to_obstacle(
-        p.pose, bf2laser, laser2point, *last_perception_, *map_, o);
+      double calculated_distance = get_distance_to_obstacle(
+        p.pose, bf2laser, laser2point_u, *last_perception_, *map_);
 
-      if (!std::isinf(calculated_distance)) {
-        const double a = calculated_distance / o;
+      if (std::isinf(last_perception_->ranges[j]) && std::isinf(calculated_distance)) {
+        p.prob = std::max(p.prob + map_->getProbHit(), 0.000001);
+
+        p.possible_hits += 1.0;
+        p.hits += 1.0;
+      } else {
+        double diff = abs(last_perception_->ranges[j] - calculated_distance);
+        const double a = diff / o;
         const double normal_comp_2 = std::exp(-0.5 * a * a);
 
         double prob = std::clamp(normal_comp_1 * normal_comp_2, 0.0, 1.0);
         p.prob = std::max(p.prob + prob, 0.000001);
+        
+        p.possible_hits += 1.0;
+        // p.hits += 1.0;
 
-        p.hits += prob;
+        if (prob >  map_->getProbHit()) {
+          p.hits += 1.0;
+        }
       }
     }
   }
@@ -125,55 +134,65 @@ LaserCorrecter::get_tranform_to_read(const sensor_msgs::msg::LaserScan & scan, i
   return ret;
 }
 
-double
-LaserCorrecter::get_error_distance_to_obstacle(
-  const tf2::Transform & map2bf, const tf2::Transform & bf2laser,
-  const tf2::Transform & laser2point, const sensor_msgs::msg::LaserScan & scan,
-  const nav2_costmap_2d::Costmap2D & costmap, double o) const
+tf2::Vector3
+LaserCorrecter::get_perception_unit_vector(const sensor_msgs::msg::LaserScan & scan, int index) const
 {
-  if (std::isinf(laser2point.getOrigin().x()) || std::isnan(laser2point.getOrigin().x())) {
-    return std::numeric_limits<double>::infinity();
-  }
+  double dist = 1.0;
+  double angle = scan.angle_min + static_cast<double>(index) * scan.angle_increment;
 
-  tf2::Transform map2laser = map2bf * bf2laser;
-  tf2::Transform map2point = map2laser * laser2point;
-  tf2::Transform map2point_aux = map2point;
-  tf2::Transform uvector;
-  tf2::Vector3 unit = laser2point.getOrigin() / laser2point.getOrigin().length();
+  tf2::Transform ret;
 
-  if (get_cost(map2point, costmap) == nav2_costmap_2d::LETHAL_OBSTACLE) {return 0.0;}
+  double x = dist * cos(angle);
+  double y = dist * sin(angle);
 
-  float dist = costmap.getResolution();
-  while (dist < (3.0 * o)) {
-    uvector.setOrigin(unit * dist);
-    // For positive
-    map2point = map2point_aux * uvector;
-    auto cost = get_cost(map2point, costmap);
-
-    if (cost == nav2_costmap_2d::LETHAL_OBSTACLE) {return dist;}
-
-    // For negative
-    uvector.setOrigin(uvector.getOrigin() * -1.0);
-    map2point = map2point_aux * uvector;
-    cost = get_cost(map2point, costmap);
-
-    if (cost == nav2_costmap_2d::LETHAL_OBSTACLE) {return dist;}
-    dist = dist + costmap.getResolution();
-  }
-
-  return std::numeric_limits<double>::infinity();
+  return {x, y, 0.0};
 }
 
-unsigned char
-LaserCorrecter::get_cost(
-  const tf2::Transform & transform, const nav2_costmap_2d::Costmap2D & costmap) const
+double
+LaserCorrecter::get_distance_to_obstacle(
+  const tf2::Transform & map2bf, const tf2::Transform & bf2laser,
+  const tf2::Vector3 unit_vector, const sensor_msgs::msg::LaserScan & scan,
+  const octomap::OcTree & octomap) const
 {
-  unsigned int mx, my;
-  if (costmap.worldToMap(transform.getOrigin().x(), transform.getOrigin().y(), mx, my)) {
-    return costmap.getCost(mx, my);
+  tf2::Transform map2laser = map2bf * bf2laser;
+  tf2::Transform map2laser_rot = map2laser;
+  map2laser_rot.setOrigin({0.0, 0.0, 0.0});
+
+  tf2::Vector3 map2point_unit = map2laser_rot * unit_vector;
+
+  tf2::Vector3 & laser_pos = map2laser.getOrigin();
+
+  octomap::point3d hit;
+  bool is_obstacle = octomap.castRay(
+    {static_cast<float>(laser_pos.x()), static_cast<float>(laser_pos.y()), static_cast<float>(laser_pos.z())},
+    {static_cast<float>(map2point_unit.x()), static_cast<float>(map2point_unit.y()), static_cast<float>(map2point_unit.z())},
+    hit, true, 
+    scan.range_max);
+
+  if (!is_obstacle) {
+    return std::numeric_limits<double>::infinity(); 
   } else {
-    return nav2_costmap_2d::NO_INFORMATION;
+    return hit.distance(
+      {
+        static_cast<float>(map2laser.getOrigin().x()),
+        static_cast<float>(map2laser.getOrigin().y()),
+        static_cast<float>(map2laser.getOrigin().z())
+      });
   }
+}
+
+double
+LaserCorrecter::get_occupancy(
+  const tf2::Transform & transform, const octomap::OcTree & octomap) const
+{
+  const auto & transl = transform.getOrigin();
+  octomap::OcTreeNode * node = octomap.search(transl.x(), transl.y(), transl.z());
+  
+  if (node == NULL) {
+    return octomap.getClampingThresMin();
+  }
+
+  return node->getOccupancy();
 }
 
 }  // namespace mh_amcl

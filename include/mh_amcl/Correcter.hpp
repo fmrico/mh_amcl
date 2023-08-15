@@ -59,10 +59,12 @@ public:
 
   virtual void correct(std::vector<Particle> & particles, rclcpp::Time & update_time) = 0;
 
+public:
+  typename T::UniquePtr last_perception_;
+
 protected:
   rclcpp_lifecycle::LifecycleNode::SharedPtr node_;
 
-  typename T::UniquePtr last_perception_;
   typename std::shared_ptr<M> & map_;
   typename rclcpp::Subscription<T>::SharedPtr percept_sub_;
 

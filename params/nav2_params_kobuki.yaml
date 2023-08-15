@@ -53,7 +53,7 @@ mh_amcl:
     init_error_yaw: 0.05
     translation_noise: 0.1
     rotation_noise: 0.1
-    distance_perception_error: 0.01
+    distance_perception_error: 0.05
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
     multihypothesis: False

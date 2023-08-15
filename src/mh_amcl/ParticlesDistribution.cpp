@@ -24,6 +24,8 @@
 
 #include "mh_amcl/ParticlesDistribution.hpp"
 
+#include "mh_amcl/LaserCorrecter.hpp"
+
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 
@@ -446,15 +448,21 @@ ParticlesDistribution::publish_particles(int base_idx, const std_msgs::msg::Colo
 void
 ParticlesDistribution::correct_once(const std::list<CorrecterBase*> & correcters, rclcpp::Time & update_time)
 {
-  for (auto & p : particles_) {
-    p.hits = 0.0;
-    p.possible_hits = 0.0;
+  bool new_data = false;
+  for (const auto correcter : correcters) {
+    if (correcter->type_ == "laser") {
+      auto * correcter_casted = dynamic_cast<LaserCorrecter*>(correcter);
+      new_data = new_data || (correcter_casted->last_perception_ != nullptr);
+    }
+  } 
+  
+  if (!new_data) {
+    return;
   }
 
-  for (const auto & correcter : correcters) {
+  for (const auto correcter : correcters) {
     if (correcter->type_ == "laser") {
-      auto * correcter_casted =
-        dynamic_cast<Correcter<sensor_msgs::msg::LaserScan, nav2_costmap_2d::Costmap2D>*>(correcter);
+      auto * correcter_casted = dynamic_cast<LaserCorrecter*>(correcter);
       correcter_casted->correct(particles_, update_time);
     }
   }
@@ -464,8 +472,16 @@ ParticlesDistribution::correct_once(const std::list<CorrecterBase*> & correcters
   // Calculate quality
   quality_ = 0.0;
   for (auto & p : particles_) {
-    p.hits = p.hits / p.possible_hits;
-    quality_ = std::max(quality_, p.hits);
+    if (p.possible_hits > 0.0) {
+      quality_ = std::max(quality_, p.hits / p.possible_hits);
+    }
+  }
+
+  if (quality_ > 0.0) {
+    for (auto & p : particles_) {
+      p.hits = 0.0;
+      p.possible_hits = 0.0;
+    }
   }
 }
 

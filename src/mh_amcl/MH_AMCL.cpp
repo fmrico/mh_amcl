@@ -54,9 +54,19 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   tf_buffer_(),
   tf_listener_(tf_buffer_)
 {
-  sub_map_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
-    "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
-    std::bind(&MH_AMCL_Node::map_callback, this, _1));
+  // sub_map_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+  //  "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+  //  std::bind(&MH_AMCL_Node::map_callback, this, _1));
+
+  sub_gridmap_ = create_subscription<grid_map_msgs::msg::GridMap>(
+    "grid_map_map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+    std::bind(&MH_AMCL_Node::gridmap_callback, this, _1));
+
+  sub_octomap_ = create_subscription<octomap_msgs::msg::Octomap>(
+    "octomap_map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+    std::bind(&MH_AMCL_Node::octomap_callback, this, _1));
+
+
   sub_init_pose_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
     "initialpose", 100, std::bind(&MH_AMCL_Node::initpose_callback, this, _1));
   pose_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("amcl_pose", 1);
@@ -76,6 +86,8 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   
   std::vector<std::string> correction_sources;
   declare_parameter("correction_sources", correction_sources);
+
+  gridmap_ = std::make_shared<grid_map::GridMap>();
 }
 
 using CallbackReturnT =
@@ -111,7 +123,7 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
       declare_parameter(correction_source + ".topic", correction_source_topic);
       get_parameter(correction_source + ".topic", correction_source_topic);
 
-      auto correcter = new LaserCorrecter(shared_from_this(), correction_source_topic, costmap_);
+      auto correcter = new LaserCorrecter(shared_from_this(), correction_source_topic, octomap_);
       correcter->type_ = correction_source_type;
 
       correcters_.push_back(correcter);
@@ -276,18 +288,28 @@ MH_AMCL_Node::predict()
   RCLCPP_DEBUG_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
 }
 
+// void
+// MH_AMCL_Node::map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
+// {
+//   costmap_ = std::make_shared<nav2_costmap_2d::Costmap2D>(*msg);
+//   matcher_ = std::make_shared<mh_amcl::MapMatcher>(*msg);
+// }
+
 void
-MH_AMCL_Node::map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
+MH_AMCL_Node::gridmap_callback(const grid_map_msgs::msg::GridMap::ConstSharedPtr & msg)
 {
-  costmap_ = std::make_shared<nav2_costmap_2d::Costmap2D>(*msg);
-  matcher_ = std::make_shared<mh_amcl::MapMatcher>(*msg);
+  grid_map::GridMapRosConverter::fromMessage(*msg, *gridmap_);
 }
 
 void
-MH_AMCL_Node::laser_callback(sensor_msgs::msg::LaserScan::UniquePtr lsr_msg)
+MH_AMCL_Node::octomap_callback(const octomap_msgs::msg::Octomap::ConstSharedPtr & msg)
 {
-  last_laser_ = std::move(lsr_msg);
-  counter_ = 0;
+  octomap::OcTree * ao = dynamic_cast<octomap::OcTree*>(octomap_msgs::msgToMap(*msg));
+  octomap_ = std::shared_ptr<octomap::OcTree>(ao);
+  octomap_->setProbHit(0.7);
+  octomap_->setProbMiss(0.4);
+  octomap_->setClampingThresMax(0.97);
+  octomap_->setClampingThresMin(0.12);
 }
 
 void
@@ -409,8 +431,6 @@ MH_AMCL_Node::publish_position()
   } else {
     RCLCPP_WARN(get_logger(), "Timeout TFs [%s]", error.c_str());
   }
-  std::cerr << "4" << std::endl;
-
 }
 
 geometry_msgs::msg::Pose
@@ -431,7 +451,7 @@ MH_AMCL_Node::toMsg(const tf2::Transform & tf)
 void
 MH_AMCL_Node::manage_hypotesis()
 {
-  if (last_laser_ == nullptr || costmap_ == nullptr || matcher_ == nullptr) {return;}
+  /*if (matcher_ == nullptr) {return;}
 
   if (!multihypothesis_) {return;}
 
@@ -532,27 +552,16 @@ MH_AMCL_Node::manage_hypotesis()
     current_amcl_q_ = current_amcl_->get_quality();
   }
 
+  */
   std::cerr << "=====================================" << std::endl;
   for (const auto & amcl : particles_population_) {
     if (amcl == current_amcl_) {
-      std::cerr << "->\t";
+      RCLCPP_INFO_STREAM(get_logger(), "->\t" << amcl->get_quality());
+    } else {
+      RCLCPP_INFO_STREAM(get_logger(), amcl->get_quality());
     }
-    std::cerr << amcl->get_quality() << std::endl;
   }
   std::cerr << "=====================================" << std::endl;
-}
-
-unsigned char
-MH_AMCL_Node::get_cost(const geometry_msgs::msg::Pose & pose)
-{
-  unsigned int i, j;
-  costmap_->worldToMap(pose.position.x, pose.position.y, i, j);
-
-  if (i > 0 && j > 0 && i < costmap_->getSizeInCellsX() && j < costmap_->getSizeInCellsY()) {
-    return costmap_->getCost(i, j);
-  } else {
-    return nav2_costmap_2d::NO_INFORMATION;
-  }
 }
 
 void
