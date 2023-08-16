@@ -51,9 +51,9 @@ class LaserCorrecterTest : public mh_amcl::LaserCorrecter
 {
 public:
   LaserCorrecterTest(
-    nav2_util::LifecycleNode::SharedPtr node, const std::string & topic,
+    const std::string & name, nav2_util::LifecycleNode::SharedPtr node,
     std::shared_ptr<octomap::OcTree> map)
-  : LaserCorrecter(node, topic, map)
+  : LaserCorrecter(name, node, map)
   {
   }
 
@@ -333,8 +333,10 @@ TEST(test1, test_laser_get_tranform_to_read)
   particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
-  LaserCorrecterTest laser_correcter(
-    nav2_util::LifecycleNode::make_shared("test"), "/scan", nullptr);
+
+  auto node =  nav2_util::LifecycleNode::make_shared("test");
+  node->set_parameter({"test.topic", std::string("/scan")});
+  LaserCorrecterTest laser_correcter("test",node, nullptr);
 
   sensor_msgs::msg::LaserScan scan;
   scan.header.frame_id = "laser";
@@ -377,8 +379,10 @@ TEST(test1, test_laser_get_perception_unit_vector)
   particle_dist.get_parent()->set_parameter({"min_particles", 200});
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
-  LaserCorrecterTest laser_correcter(
-    nav2_util::LifecycleNode::make_shared("test"), "/scan", nullptr);
+
+  auto node =  nav2_util::LifecycleNode::make_shared("test");
+  node->set_parameter({"test.topic", std::string("/scan")});
+  LaserCorrecterTest laser_correcter("test",node, nullptr);
 
   sensor_msgs::msg::LaserScan scan;
   scan.header.frame_id = "laser";
@@ -447,8 +451,9 @@ TEST(test1, test_laser_get_occupancy)
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
-  LaserCorrecterTest laser_correcter(
-    nav2_util::LifecycleNode::make_shared("test"), "/scan", nullptr);
+  auto node =  nav2_util::LifecycleNode::make_shared("test");
+  node->set_parameter({"test.topic", std::string("/scan")});
+  LaserCorrecterTest laser_correcter("test",node, nullptr);
 
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
@@ -517,8 +522,9 @@ TEST(test1, test_laser_get_distance_to_obstacle)
   particle_dist.on_configure(
     rclcpp_lifecycle::State(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "Inactive"));
 
-  LaserCorrecterTest laser_correcter(
-    nav2_util::LifecycleNode::make_shared("test"), "/scan", nullptr);
+  auto node =  nav2_util::LifecycleNode::make_shared("test");
+  node->set_parameter({"test.topic", std::string("/scan")});
+  LaserCorrecterTest laser_correcter("test",node, nullptr);
 
   tf2::Transform init_rot;
   init_rot.setOrigin({0.0, 0.0, 0.0});
@@ -775,7 +781,8 @@ TEST(test1, test_laser_correct)
   // Here we should set perception noise to 0.0 to avoid random errors
 
   auto node = nav2_util::LifecycleNode::make_shared("aux_node");
-  mh_amcl::LaserCorrecter * correcter = new mh_amcl::LaserCorrecter(node, "/scan", octomap);
+  node->set_parameter({"aux_node.topic", std::string("/scan")});
+  mh_amcl::LaserCorrecter * correcter = new mh_amcl::LaserCorrecter("test", node, octomap);
 
   correcter->type_ = "laser";
   correcter->set_last_perception(scan);

@@ -53,7 +53,6 @@ mh_amcl:
     init_error_yaw: 0.05
     translation_noise: 0.1
     rotation_noise: 0.1
-    distance_perception_error: 0.05
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
     multihypothesis: False
@@ -67,10 +66,18 @@ mh_amcl:
     hypo_merge_angle: 0.5
     good_hypo_thereshold: 0.5
     min_hypo_diff_winner: 0.3
-    correction_sources: ['laser_0']
-    laser_0:
-      type: laser
-      topic: /scan
+    correction_sources: ['pc_0']
+#     laser_0:
+#       type: laser
+#       topic: /scan
+#        distance_perception_error: 0.05
+
+    pc_0:
+      type: pointcloud
+      topic: /velodyne_points
+      distance_perception_error: 0.1
+      max_perception_distance: 20.0
+      point_step: 20
 
 bt_navigator:
   ros__parameters:

@@ -25,6 +25,7 @@
 #include "mh_amcl/ParticlesDistribution.hpp"
 
 #include "mh_amcl/LaserCorrecter.hpp"
+#include "mh_amcl/PointCloudCorrecter.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
@@ -454,6 +455,10 @@ ParticlesDistribution::correct_once(const std::list<CorrecterBase*> & correcters
       auto * correcter_casted = dynamic_cast<LaserCorrecter*>(correcter);
       new_data = new_data || (correcter_casted->last_perception_ != nullptr);
     }
+    if (correcter->type_ == "pointcloud") {
+      auto * correcter_casted = dynamic_cast<PointCloudCorrecter*>(correcter);
+      new_data = new_data || (correcter_casted->last_perception_ != nullptr);
+    }
   } 
   
   if (!new_data) {
@@ -463,6 +468,10 @@ ParticlesDistribution::correct_once(const std::list<CorrecterBase*> & correcters
   for (const auto correcter : correcters) {
     if (correcter->type_ == "laser") {
       auto * correcter_casted = dynamic_cast<LaserCorrecter*>(correcter);
+      correcter_casted->correct(particles_, update_time);
+    }
+    if (correcter->type_ == "pointcloud") {
+      auto * correcter_casted = dynamic_cast<PointCloudCorrecter*>(correcter);
       correcter_casted->correct(particles_, update_time);
     }
   }

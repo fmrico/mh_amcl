@@ -38,6 +38,7 @@
 #include "nav2_costmap_2d/cost_values.hpp"
 
 #include "mh_amcl/LaserCorrecter.hpp"
+#include "mh_amcl/PointCloudCorrecter.hpp"
 #include "mh_amcl/MH_AMCL.hpp"
 
 #include "rclcpp/rclcpp.hpp"
@@ -118,20 +119,19 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
     declare_parameter(correction_source + ".type", correction_source_type);
     get_parameter(correction_source + ".type", correction_source_type);
 
+    CorrecterBase * correcter;
     if (correction_source_type == "laser") {
-      std::string correction_source_topic;
-      declare_parameter(correction_source + ".topic", correction_source_topic);
-      get_parameter(correction_source + ".topic", correction_source_topic);
-
-      auto correcter = new LaserCorrecter(shared_from_this(), correction_source_topic, octomap_);
-      correcter->type_ = correction_source_type;
-
-      correcters_.push_back(correcter);
-      RCLCPP_INFO(
-        get_logger(), "Created corrected [%s] (type [%s], topic [%s])",
-        correction_source.c_str(), correction_source_type.c_str(),
-        correction_source_topic.c_str());
+      correcter = new LaserCorrecter(correction_source, shared_from_this(), octomap_);
     }
+    if (correction_source_type == "pointcloud") {
+      correcter = new PointCloudCorrecter(correction_source, shared_from_this(), octomap_);
+    }
+
+    correcter->type_ = correction_source_type;
+    correcters_.push_back(correcter);
+    RCLCPP_INFO(
+      get_logger(), "Created corrected [%s] (type [%s])",
+      correction_source.c_str(), correction_source_type.c_str());
   }
 
   current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this());

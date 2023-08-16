@@ -40,12 +40,19 @@ template<class T, class M>
 class Correcter : public CorrecterBase
 {
 public:
-  Correcter(nav2_util::LifecycleNode::SharedPtr node, const std::string & topic, typename std::shared_ptr<M> & map)
-  : node_(node),
+  Correcter(const std::string & name, nav2_util::LifecycleNode::SharedPtr node, typename std::shared_ptr<M> & map)
+  : name_(name),
+    node_(node),
     map_(map),
     tf_buffer_(),
     tf_listener_(tf_buffer_)
   {
+    std::string topic;
+    if (!node->has_parameter(name + ".topic")) {
+      node->declare_parameter(name + ".topic", "/perception");
+    }
+    node->get_parameter(name + ".topic", topic);
+
     percept_sub_ = node->create_subscription<T>(
       topic, rclcpp::QoS(100).best_effort(), std::bind(&Correcter::perception_callback, this, _1));
   }
@@ -63,6 +70,7 @@ public:
   typename T::UniquePtr last_perception_;
 
 protected:
+  const std::string name_;
   rclcpp_lifecycle::LifecycleNode::SharedPtr node_;
 
   typename std::shared_ptr<M> & map_;
