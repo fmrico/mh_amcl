@@ -34,6 +34,7 @@ class CorrecterBase {
 public:
   virtual ~CorrecterBase() {};
   std::string type_;
+  virtual void clear_perception() = 0;
 };
 
 template<class T, class M>
@@ -65,6 +66,9 @@ public:
   }
 
   virtual void correct(std::vector<Particle> & particles, rclcpp::Time & update_time) = 0;
+  virtual void clear_perception() {
+    last_perception_ = nullptr;
+  }
 
 public:
   typename T::UniquePtr last_perception_;

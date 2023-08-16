@@ -21,6 +21,7 @@
 
 using namespace std::chrono_literals;
 
+/*
 class MapMatcherTest : public mh_amcl::MapMatcher
 {
 public:
@@ -49,7 +50,7 @@ public:
   rclcpp::Node::SharedPtr node_;
   std::vector<rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr> pubs_;
 };
-
+*/
 /*TEST(test1, test_match)
 {
   auto test_node = rclcpp::Node::make_shared("test_node");

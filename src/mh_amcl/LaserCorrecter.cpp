@@ -49,6 +49,7 @@ LaserCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & update
   if (last_perception_ == nullptr) {
     return;
   }
+
   if (map_ == nullptr) {
     return;
   }
@@ -114,7 +115,7 @@ LaserCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & update
   }
 
   update_time = last_perception_->header.stamp;
-  last_perception_ = nullptr;
+  // last_perception_ = nullptr;
 }
 
 tf2::Transform

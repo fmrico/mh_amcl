@@ -86,7 +86,6 @@ protected:
   geometry_msgs::msg::Pose toMsg(const tf2::Transform & tf);
 
 private:
-  // rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
   rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr sub_gridmap_;
   rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr sub_octomap_;
 
@@ -126,15 +125,12 @@ private:
   tf2::Stamped<tf2::Transform> odom2prevbf_;
   bool valid_prev_odom2bf_ {false};
 
-  // std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_;
   std::shared_ptr<grid_map::GridMap> gridmap_;
   std::shared_ptr<octomap::OcTree> octomap_;
 
-  std::shared_ptr<mh_amcl::MapMatcher> matcher_;
-
+  std::list<MapMatcherBase*> matchers_;
   std::list<CorrecterBase*> correcters_;
 
-  // void map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
   void gridmap_callback(const grid_map_msgs::msg::GridMap::ConstSharedPtr & msg);
   void octomap_callback(const octomap_msgs::msg::Octomap::ConstSharedPtr & msg);
 

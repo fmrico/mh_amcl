@@ -22,11 +22,41 @@
 namespace mh_amcl
 {
 
+using std::placeholders::_1;
 
-MapMatcher::MapMatcher(const nav_msgs::msg::OccupancyGrid & map)
+MapMatcher::MapMatcher(
+  const std::string & name, 
+  std::shared_ptr<nav2_util::LifecycleNode> parent_node)
+: parent_node_(parent_node)
 {
+  sub_map_ = parent_node->create_subscription<nav_msgs::msg::OccupancyGrid>(
+   "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+   std::bind(&MapMatcher::map_callback, this, _1));
+
+  std::string scan_topic("/scan");
+  if (!parent_node->has_parameter(name + ".topic")) {
+    parent_node->declare_parameter(name + ".topic", scan_topic);
+  }
+  parent_node->get_parameter(name + ".topic", scan_topic);
+
+  laser_sub_ = parent_node->create_subscription<sensor_msgs::msg::LaserScan>(
+    scan_topic, rclcpp::SensorDataQoS(),
+    std::bind(&MapMatcher::laser_callback, this, _1));
+}
+
+void
+MapMatcher::laser_callback(sensor_msgs::msg::LaserScan::UniquePtr msg)
+{
+  last_perception_ = std::move(msg);
+}
+
+void
+MapMatcher::map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
+{
+  costmap_ = std::make_shared<nav2_costmap_2d::Costmap2D>(*msg);
+
   costmaps_.resize(NUM_LEVEL_SCALE_COSTMAP);
-  costmaps_[0] = std::make_shared<nav2_costmap_2d::Costmap2D>(map);
+  costmaps_[0] = std::make_shared<nav2_costmap_2d::Costmap2D>(*costmap_);
 
   for (int i = 1; i < NUM_LEVEL_SCALE_COSTMAP; i++) {
     costmaps_[i] = half_scale(costmaps_[i - 1]);
@@ -83,9 +113,14 @@ MapMatcher::half_scale(std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_in)
 }
 
 std::list<TransformWeighted>
-MapMatcher::get_matchs(const sensor_msgs::msg::LaserScan & scan)
+MapMatcher::get_matchs()
 {
-  std::vector<tf2::Vector3> laser_poins = laser2points(scan);
+  if (last_perception_ == nullptr || costmap_ == nullptr) {
+    RCLCPP_WARN(parent_node_->get_logger(), "No data available for map matching");
+    return {};
+  }
+
+  std::vector<tf2::Vector3> laser_poins = laser2points(*last_perception_);
 
   int start_level = NUM_LEVEL_SCALE_COSTMAP - 2;
   int min_level = 2;
@@ -240,12 +275,6 @@ toMsg(const nav2_costmap_2d::Costmap2D & costmap)
   }
 
   return grid;
-}
-
-bool operator<(const TransformWeighted & tw1, const TransformWeighted & tw2)
-{
-  // To sort incremental
-  return tw1.weight > tw2.weight;
 }
 
 }  // namespace mh_amcl

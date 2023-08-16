@@ -55,7 +55,7 @@ mh_amcl:
     rotation_noise: 0.1
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
-    multihypothesis: False
+    multihypothesis: True
     max_hypotheses: 5
     min_candidate_weight: 0.5
     min_candidate_distance: 1.0
@@ -66,7 +66,11 @@ mh_amcl:
     hypo_merge_angle: 0.5
     good_hypo_thereshold: 0.5
     min_hypo_diff_winner: 0.3
-    correction_sources: ['pc_0']
+    matchers: ['matcher_0']
+    matcher_0:
+      type: matcher2d
+      topic: /scan
+    correction_sources: ['laser_0', 'pc_0']
     laser_0:
       type: laser
       topic: /scan
@@ -76,7 +80,7 @@ mh_amcl:
       topic: /velodyne_points
       distance_perception_error: 0.1
       max_perception_distance: 10.0
-      point_step: 20
+      point_step: 50
 
 bt_navigator:
   ros__parameters:

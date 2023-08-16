@@ -55,10 +55,6 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   tf_buffer_(),
   tf_listener_(tf_buffer_)
 {
-  // sub_map_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
-  //  "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
-  //  std::bind(&MH_AMCL_Node::map_callback, this, _1));
-
   sub_gridmap_ = create_subscription<grid_map_msgs::msg::GridMap>(
     "grid_map_map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
     std::bind(&MH_AMCL_Node::gridmap_callback, this, _1));
@@ -87,6 +83,9 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   
   std::vector<std::string> correction_sources;
   declare_parameter("correction_sources", correction_sources);
+
+  std::vector<std::string> matchers;
+  declare_parameter("matchers", matchers);
 
   gridmap_ = std::make_shared<grid_map::GridMap>();
 }
@@ -132,6 +131,26 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
     RCLCPP_INFO(
       get_logger(), "Created corrected [%s] (type [%s])",
       correction_source.c_str(), correction_source_type.c_str());
+  }
+
+  std::vector<std::string> matchers;
+  get_parameter("matchers", matchers);
+
+  for (const auto & matcher : matchers) {
+    std::string matchers_type;
+    declare_parameter(matcher + ".type", matchers_type);
+    get_parameter(matcher + ".type", matchers_type);
+
+    MapMatcherBase * new_matcher;
+    if (matchers_type == "matcher2d") {
+      new_matcher = new MapMatcher(matcher, shared_from_this());
+    }
+
+    new_matcher->type_ = matchers_type;
+    matchers_.push_back(new_matcher);
+    RCLCPP_INFO(
+      get_logger(), "Created matcher [%s] (type [%s])",
+      matcher.c_str(), matchers_type.c_str());
   }
 
   current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this());
@@ -288,12 +307,6 @@ MH_AMCL_Node::predict()
   RCLCPP_DEBUG_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
 }
 
-// void
-// MH_AMCL_Node::map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
-// {
-//   costmap_ = std::make_shared<nav2_costmap_2d::Costmap2D>(*msg);
-//   matcher_ = std::make_shared<mh_amcl::MapMatcher>(*msg);
-// }
 
 void
 MH_AMCL_Node::gridmap_callback(const grid_map_msgs::msg::GridMap::ConstSharedPtr & msg)
@@ -319,6 +332,10 @@ MH_AMCL_Node::correct()
 
   for (auto & particles : particles_population_) {
     particles->correct_once(correcters_, last_time_);
+  }
+
+  for (auto & correcter : correcters_) {
+    correcter->clear_perception();
   }
 
   RCLCPP_DEBUG_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
@@ -451,11 +468,15 @@ MH_AMCL_Node::toMsg(const tf2::Transform & tf)
 void
 MH_AMCL_Node::manage_hypotesis()
 {
-  /*if (matcher_ == nullptr) {return;}
+  if (matchers_.empty()) {return;}
 
   if (!multihypothesis_) {return;}
 
-  const auto & tfs = matcher_->get_matchs(*last_laser_);
+  
+  std::list<TransformWeighted> tfs;
+  for (auto matcher : matchers_) {
+    tfs.merge(matcher->get_matchs());
+  }
 
   // Create new Hypothesis
   for (const auto & transform : tfs) {
@@ -475,6 +496,7 @@ MH_AMCL_Node::manage_hypotesis()
       }
 
       if (!covered && particles_population_.size() < max_hypotheses_) {
+        std::cerr << "Create new Particle Distribution " << std::endl;
         auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
         aux_distr->on_configure(get_current_state());
         aux_distr->init(transform.transform);
@@ -491,7 +513,28 @@ MH_AMCL_Node::manage_hypotesis()
     bool low_quality = (*it)->get_quality() < low_q_hypo_thereshold_;
     bool very_low_quality = (*it)->get_quality() < very_low_q_hypo_thereshold_;
     bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
-    bool in_free = get_cost((*it)->get_pose().pose.pose) == nav2_costmap_2d::FREE_SPACE;
+
+    /*grid_map::Position grid_map_pos((*it)->get_pose().pose.pose.position.x, (*it)->get_pose().pose.pose.position.y);
+    std::cerr << "Asking for the pose (" << (*it)->get_pose().pose.pose.position.x << ", " <<
+      (*it)->get_pose().pose.pose.position.y << ")" ;
+
+    for (const auto & layer :  gridmap_->getLayers()) {
+      std::cerr << "L [" << layer << "]" << std::endl;
+    }
+
+    std::cerr << "[" << gridmap_->getSize().x() <<" x " <<  gridmap_->getSize().y() << "]" << std::endl;
+
+    bool in_free;
+    try {
+      float value = gridmap_->atPosition("occupancy", grid_map_pos);
+      in_free = value < 5.0;
+      std::cerr << " = " << value << std::endl;
+    } catch(std::out_of_range e) {
+      std::cerr << " Exception" << e.what() << std::endl;
+      in_free = false;
+    }
+    */
+    bool in_free = true;
 
     if (particles_population_.size() > 1 && (!in_free || very_low_quality || (low_quality && max_hypo_reached))) {
       it = particles_population_.erase(it);
@@ -528,7 +571,7 @@ MH_AMCL_Node::manage_hypotesis()
     }
     ++it1;
   }
-
+ 
   current_amcl_q_ = current_amcl_->get_quality();
 
   for (const auto & amcl : particles_population_) {
@@ -552,7 +595,6 @@ MH_AMCL_Node::manage_hypotesis()
     current_amcl_q_ = current_amcl_->get_quality();
   }
 
-  */
   std::cerr << "=====================================" << std::endl;
   for (const auto & amcl : particles_population_) {
     if (amcl == current_amcl_) {

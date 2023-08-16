@@ -132,7 +132,6 @@ PointCloudCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & u
   }
 
   update_time = last_perception_->header.stamp;
-  last_perception_ = nullptr;
 }
 
 
