@@ -102,8 +102,6 @@ PointCloudCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & u
     tf2::Vector3 sensor2point(point.x, point.y, point.z);
     tf2::Vector3 sensor2point_u = sensor2point / sensor2point.length();
 
-    // std::cerr << "With u = " << octomath::Vector3({sensor2point_u.x(), sensor2point_u.y(), sensor2point_u.z()}) << " [" << sensor2point_u.length() << "]";
-
     for (int i = 0; i < particles.size(); i++) {
       auto & p = particles[i];
 
@@ -130,11 +128,6 @@ PointCloudCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & u
           p.hits += 1.0;
         }
       }
-
-      // if (i == 0) {
-      //   std::cerr << "sd = " << abs(sensor2point.length()) << " - cd = " << calculated_distance << " = " << 
-      //   abs(sensor2point.length() - calculated_distance) << " = " << p.prob << std::endl;
-      // }
     }
   }
 
