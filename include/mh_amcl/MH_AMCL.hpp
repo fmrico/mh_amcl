@@ -77,6 +77,7 @@ protected:
   void reseed();
   void publish_particles();
   void publish_position();
+  void publish_position_tf();
   void manage_hypotesis();
 
   void get_distances(
@@ -96,9 +97,10 @@ private:
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;
   rclcpp::TimerBase::SharedPtr reseed_timer_;
-  rclcpp::TimerBase::SharedPtr hypotesys_timer_;
+  rclcpp::TimerBase::SharedPtr hypotesis_timer_;
   rclcpp::TimerBase::SharedPtr publish_particles_timer_;
   rclcpp::TimerBase::SharedPtr publish_position_timer_;
+  rclcpp::TimerBase::SharedPtr publish_position_tf_timer_;
 
   int max_hypotheses_;
   bool multihypothesis_;

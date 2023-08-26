@@ -30,7 +30,8 @@
 #include "std_msgs/msg/color_rgba.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
-#include "nav2_costmap_2d/costmap_2d.hpp"
+#include "grid_map_msgs/msg/grid_map.hpp"
+#include "grid_map_ros/grid_map_ros.hpp"
 
 #include "mh_amcl/Types.hpp"
 #include "mh_amcl/Correcter.hpp"
@@ -50,7 +51,7 @@ public:
   explicit ParticlesDistribution(rclcpp_lifecycle::LifecycleNode::SharedPtr parent_node);
 
   void init(const tf2::Transform & pose_init);
-  void predict(const tf2::Transform & movement);
+  void predict(const tf2::Transform & movement, std::shared_ptr<grid_map::GridMap> gridmap);
   void correct_once(const std::list<CorrecterBase*> & correcters, rclcpp::Time & update_time);
   void reseed();
   const std::vector<mh_amcl::Particle> & get_particles() const {return particles_;}
@@ -99,10 +100,16 @@ protected:
   int min_particles_;
   double init_pos_x_;
   double init_pos_y_;
+  double init_pos_z_;
   double init_pos_yaw_;
+  double init_pos_pitch_;
+  double init_pos_roll_;
   double init_error_x_;
   double init_error_y_;
+  double init_error_z_;
   double init_error_yaw_;
+  double init_error_pitch_;
+  double init_error_roll_;
   double translation_noise_;
   double rotation_noise_;
   double reseed_percentage_losers_;

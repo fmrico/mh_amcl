@@ -298,7 +298,7 @@ TEST(test1, test_predict)
   trans.setOrigin(tf2::Vector3(1.0, 0.0, 0.0));
   trans.setRotation(tf2::Quaternion(0.0, 0.0, 0.0, 1.0));
 
-  particle_dist.predict(trans);
+  particle_dist.predict(trans, nullptr);
 
   auto particles = particle_dist.get_particles_test();
 

@@ -22,6 +22,9 @@
 
 #include "visualization_msgs/msg/marker_array.hpp"
 
+#include "grid_map_msgs/msg/grid_map.hpp"
+#include "grid_map_ros/grid_map_ros.hpp"
+
 #include "mh_amcl/ParticlesDistribution.hpp"
 
 #include "mh_amcl/LaserCorrecter.hpp"
@@ -58,6 +61,15 @@ ParticlesDistribution::ParticlesDistribution(
   if (!parent_node->has_parameter("init_pos_y")) {
     parent_node->declare_parameter("init_pos_y", 0.0);
   }
+  if (!parent_node->has_parameter("init_pos_z")) {
+    parent_node->declare_parameter("init_pos_z", 0.0);
+  }
+  if (!parent_node->has_parameter("init_pos_pitch")) {
+    parent_node->declare_parameter("init_pos_pitch", 0.0);
+  }
+  if (!parent_node->has_parameter("init_pos_roll")) {
+    parent_node->declare_parameter("init_pos_roll", 0.0);
+  }
   if (!parent_node->has_parameter("init_pos_yaw")) {
     parent_node->declare_parameter("init_pos_yaw", 0.0);
   }
@@ -69,6 +81,12 @@ ParticlesDistribution::ParticlesDistribution(
   }
   if (!parent_node->has_parameter("init_error_yaw")) {
     parent_node->declare_parameter("init_error_yaw", 0.05);
+  }
+  if (!parent_node->has_parameter("init_error_pitch")) {
+    parent_node->declare_parameter("init_error_pitch", 0.01);
+  }
+  if (!parent_node->has_parameter("init_error_roll")) {
+    parent_node->declare_parameter("init_error_roll", 0.01);
   }
   if (!parent_node->has_parameter("translation_noise")) {
     parent_node->declare_parameter("translation_noise", 0.01);
@@ -103,10 +121,15 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   parent_node_->get_parameter("min_particles", min_particles_);
   parent_node_->get_parameter("init_pos_x", init_pos_x_);
   parent_node_->get_parameter("init_pos_y", init_pos_y_);
+  parent_node_->get_parameter("init_pos_z", init_pos_z_);
   parent_node_->get_parameter("init_pos_yaw", init_pos_yaw_);
+  parent_node_->get_parameter("init_pos_pitch", init_pos_pitch_);
+  parent_node_->get_parameter("init_pos_roll", init_pos_roll_);
   parent_node_->get_parameter("init_error_x", init_error_x_);
   parent_node_->get_parameter("init_error_y", init_error_y_);
   parent_node_->get_parameter("init_error_yaw", init_error_yaw_);
+  parent_node_->get_parameter("init_error_pitch", init_error_pitch_);
+  parent_node_->get_parameter("init_error_roll", init_error_roll_);
   parent_node_->get_parameter("translation_noise", translation_noise_);
   parent_node_->get_parameter("rotation_noise", rotation_noise_);
   parent_node_->get_parameter("reseed_percentage_losers", reseed_percentage_losers_);
@@ -116,7 +139,7 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   parent_node_->get_parameter("particles_step", particles_step_);
 
   tf2::Transform init_pose;
-  init_pose.setOrigin(tf2::Vector3(init_pos_x_, init_pos_y_, 0.0));
+  init_pose.setOrigin(tf2::Vector3(init_pos_x_, init_pos_y_, init_pos_z_));
 
   tf2::Quaternion q;
   q.setRPY(0.0, 0.0, init_pos_yaw_);
@@ -332,7 +355,10 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
 {
   std::normal_distribution<double> noise_x(0, init_error_x_);
   std::normal_distribution<double> noise_y(0, init_error_y_);
-  std::normal_distribution<double> noise_t(0, init_error_yaw_);
+  std::normal_distribution<double> noise_z(0, init_error_z_);
+  std::normal_distribution<double> noise_yw(0, init_error_yaw_);
+  std::normal_distribution<double> noise_p(0, init_error_pitch_);
+  std::normal_distribution<double> noise_r(0, init_error_roll_);
 
   particles_.clear();
   particles_.resize((max_particles_ + min_particles_) / 2);
@@ -344,17 +370,19 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
     tf2::Vector3 pose = particle.pose.getOrigin();
     pose.setX(pose.getX() + noise_x(generator_));
     pose.setY(pose.getY() + noise_y(generator_));
-    pose.setZ(0.0);
+    pose.setZ(pose.getZ() + noise_z(generator_));
 
     particle.pose.setOrigin(pose);
 
     double roll, pitch, yaw;
     tf2::Matrix3x3(particle.pose.getRotation()).getRPY(roll, pitch, yaw);
 
-    double newyaw = yaw + noise_t(generator_);
+    double newyaw = yaw + noise_yw(generator_);
+    double newpitch = pitch + noise_p(generator_);
+    double newroll = roll + noise_r(generator_);
 
     tf2::Quaternion q;
-    q.setRPY(roll, pitch, newyaw);
+    q.setRPY(newroll, newpitch, newyaw);
 
     particle.pose.setRotation(q);
   }
@@ -365,10 +393,25 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
 }
 
 void
-ParticlesDistribution::predict(const tf2::Transform & movement)
+ParticlesDistribution::predict(const tf2::Transform & movement, std::shared_ptr<grid_map::GridMap> gridmap)
 {
+  auto & gridpmap_pos = gridmap->getPosition();
+
   for (auto & particle : particles_) {
     particle.pose = particle.pose * movement * add_noise(movement);
+
+    if (gridmap != nullptr) {
+      auto & pos = particle.pose.getOrigin();
+
+      try {
+        grid_map::Position particle_pos(pos.x(), pos.y());
+        particle_pos = particle_pos + gridpmap_pos;
+        float elevation = gridmap->atPosition("elevation", particle_pos);
+        particle.pose.setOrigin({pos.x(), pos.y(), static_cast<double>(elevation)});
+      } catch (std::out_of_range e) {
+        std::cerr << "Error accessing gridmap pos at " << pos.x() << ", " << pos.y() << ")" << std::endl;
+      }
+    }
   }
   update_pose(pose_);
 }
@@ -386,7 +429,7 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
 
   double x = dm.getOrigin().x() * noise_tra;
   double y = dm.getOrigin().y() * noise_tra;
-  double z = 0.0;
+  double z = dm.getOrigin().z() * noise_tra;
 
   returned_noise.setOrigin(tf2::Vector3(x, y, z));
 
@@ -394,9 +437,11 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
   tf2::Matrix3x3(dm.getRotation()).getRPY(roll, pitch, yaw);
 
   double newyaw = yaw * noise_rot;
+  double newpitch = pitch * noise_rot;
+  double newroll = roll * noise_rot;
 
   tf2::Quaternion q;
-  q.setRPY(roll, pitch, newyaw);
+  q.setRPY(newroll, newpitch, newyaw);
   returned_noise.setRotation(q);
 
   return returned_noise;
@@ -534,7 +579,9 @@ ParticlesDistribution::reseed()
   std::normal_distribution<double> selector(0, number_winners);
   std::normal_distribution<double> noise_x(0, init_error_x_ * init_error_x_);
   std::normal_distribution<double> noise_y(0, init_error_y_ * init_error_y_);
-  std::normal_distribution<double> noise_t(0, init_error_yaw_ * init_error_yaw_);
+  std::normal_distribution<double> noise_yw(0, init_error_yaw_ * init_error_yaw_);
+  std::normal_distribution<double> noise_p(0, init_error_pitch_ * init_error_pitch_);
+  std::normal_distribution<double> noise_r(0, init_error_roll_ * init_error_roll_);
 
   for (int i = 0; i < number_losers; i++) {
     int index = std::clamp(static_cast<int>(selector(generator_)), 0, number_winners);
@@ -554,12 +601,18 @@ ParticlesDistribution::reseed()
     tf2::Matrix3x3 m(particles_[i].pose.getRotation());
     m.getRPY(roll, pitch, yaw);
 
-    double newyaw = yaw + noise_t(generator_);
+    double newyaw = yaw + noise_yw(generator_);
     while (newyaw > M_PI) {newyaw -= 2.0 * M_PI;}
     while (newyaw < -M_PI) {newyaw += 2.0 * M_PI;}
+    double newpitch = pitch + noise_p(generator_);
+    while (newpitch > M_PI) {newpitch -= 2.0 * M_PI;}
+    while (newpitch < -M_PI) {newpitch += 2.0 * M_PI;}
+    double newroll = roll + noise_r(generator_);
+    while (newroll > M_PI) {newroll -= 2.0 * M_PI;}
+    while (newroll < -M_PI) {newroll += 2.0 * M_PI;}
 
     tf2::Quaternion q;
-    q.setRPY(roll, pitch, newyaw);
+    q.setRPY(newroll, newpitch, newyaw);
 
     p.pose.setRotation(q);
 

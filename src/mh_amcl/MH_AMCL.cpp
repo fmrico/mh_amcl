@@ -80,7 +80,7 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   declare_parameter<double>("hypo_merge_angle", 0.3);
   declare_parameter<float>("good_hypo_thereshold", 0.6);
   declare_parameter<float>("min_hypo_diff_winner", 0.2);
-  
+
   std::vector<std::string> correction_sources;
   declare_parameter("correction_sources", correction_sources);
 
@@ -191,12 +191,14 @@ MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
   predict_timer_ = create_wall_timer(10ms, std::bind(&MH_AMCL_Node::predict, this));
   correct_timer_ = create_wall_timer(100ms, std::bind(&MH_AMCL_Node::correct, this));
   reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this));
-  hypotesys_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::manage_hypotesis, this));
+  hypotesis_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::manage_hypotesis, this));
 
   publish_particles_timer_ = create_wall_timer(
     100ms, std::bind(&MH_AMCL_Node::publish_particles, this));
   publish_position_timer_ = create_wall_timer(
     30ms, std::bind(&MH_AMCL_Node::publish_position, this));
+  publish_position_tf_timer_ = create_wall_timer(
+    10ms, std::bind(&MH_AMCL_Node::publish_position_tf, this));
 
   std::list<CallbackReturnT> ret;
   for (auto & particles : particles_population_) {
@@ -226,7 +228,7 @@ MH_AMCL_Node::on_deactivate(const rclcpp_lifecycle::State & state)
   reseed_timer_ = nullptr;
   publish_particles_timer_ = nullptr;
   publish_position_timer_ = nullptr;
-  hypotesys_timer_ = nullptr;
+  hypotesis_timer_ = nullptr;
 
   std::list<CallbackReturnT> ret;
   for (auto & particles : particles_population_) {
@@ -296,7 +298,7 @@ MH_AMCL_Node::predict()
       tf2::Transform bfprev2bf = odom2prevbf_.inverse() * odom2bf;
 
       for (auto & particles : particles_population_) {
-        particles->predict(bfprev2bf);
+        particles->predict(bfprev2bf, gridmap_);
       }
     }
 
@@ -420,8 +422,13 @@ MH_AMCL_Node::publish_position()
 
     particles_pub_->publish(particles_msgs);
   }
+}
 
+void
+MH_AMCL_Node::publish_position_tf()
+{
   // Publish tf map -> odom
+  geometry_msgs::msg::PoseWithCovarianceStamped pose = current_amcl_->get_pose();
 
   tf2::Transform map2robot;
   tf2::Stamped<tf2::Transform> robot2odom;
@@ -470,135 +477,134 @@ MH_AMCL_Node::manage_hypotesis()
 {
   if (matchers_.empty()) {return;}
 
-  if (!multihypothesis_) {return;}
+  if (multihypothesis_) {
+    std::list<TransformWeighted> tfs;
+    for (auto matcher : matchers_) {
+      tfs.merge(matcher->get_matchs());
+    }
 
-  
-  std::list<TransformWeighted> tfs;
-  for (auto matcher : matchers_) {
-    tfs.merge(matcher->get_matchs());
-  }
+    // Create new Hypothesis
+    for (const auto & transform : tfs) {
+      if (transform.weight > min_candidate_weight_) {
+        bool covered = false;
 
-  // Create new Hypothesis
-  for (const auto & transform : tfs) {
-    if (transform.weight > min_candidate_weight_) {
-      bool covered = false;
+        for (const auto & distr : particles_population_) {
+          const auto & pose = distr->get_pose().pose.pose;
+          geometry_msgs::msg::Pose posetf = toMsg(transform.transform);
 
-      for (const auto & distr : particles_population_) {
-        const auto & pose = distr->get_pose().pose.pose;
-        geometry_msgs::msg::Pose posetf = toMsg(transform.transform);
+          double dist, difft;
+          get_distances(pose, posetf, dist, difft);
 
-        double dist, difft;
-        get_distances(pose, posetf, dist, difft);
+          if (dist < min_candidate_distance_ && difft < min_candidate_angle_) {
+            covered = true;
+          }
+        }
 
-        if (dist < min_candidate_distance_ && difft < min_candidate_angle_) {
-          covered = true;
+        if (!covered && particles_population_.size() < max_hypotheses_) {
+          std::cerr << "Create new Particle Distribution " << std::endl;
+          auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
+          aux_distr->on_configure(get_current_state());
+          aux_distr->init(transform.transform);
+          aux_distr->on_activate(get_current_state());
+          particles_population_.push_back(aux_distr);
         }
       }
 
-      if (!covered && particles_population_.size() < max_hypotheses_) {
-        std::cerr << "Create new Particle Distribution " << std::endl;
-        auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
-        aux_distr->on_configure(get_current_state());
-        aux_distr->init(transform.transform);
-        aux_distr->on_activate(get_current_state());
-        particles_population_.push_back(aux_distr);
-      }
+      if (particles_population_.size() == max_hypotheses_) {break;}
     }
 
-    if (particles_population_.size() == max_hypotheses_) {break;}
-  }
+    auto it = particles_population_.begin();
+    while (it != particles_population_.end()) {
+      bool low_quality = (*it)->get_quality() < low_q_hypo_thereshold_;
+      bool very_low_quality = (*it)->get_quality() < very_low_q_hypo_thereshold_;
+      bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
 
-  auto it = particles_population_.begin();
-  while (it != particles_population_.end()) {
-    bool low_quality = (*it)->get_quality() < low_q_hypo_thereshold_;
-    bool very_low_quality = (*it)->get_quality() < very_low_q_hypo_thereshold_;
-    bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
+      /*grid_map::Position grid_map_pos((*it)->get_pose().pose.pose.position.x, (*it)->get_pose().pose.pose.position.y);
+      std::cerr << "Asking for the pose (" << (*it)->get_pose().pose.pose.position.x << ", " <<
+        (*it)->get_pose().pose.pose.position.y << ")" ;
 
-    /*grid_map::Position grid_map_pos((*it)->get_pose().pose.pose.position.x, (*it)->get_pose().pose.pose.position.y);
-    std::cerr << "Asking for the pose (" << (*it)->get_pose().pose.pose.position.x << ", " <<
-      (*it)->get_pose().pose.pose.position.y << ")" ;
-
-    for (const auto & layer :  gridmap_->getLayers()) {
-      std::cerr << "L [" << layer << "]" << std::endl;
-    }
-
-    std::cerr << "[" << gridmap_->getSize().x() <<" x " <<  gridmap_->getSize().y() << "]" << std::endl;
-
-    bool in_free;
-    try {
-      float value = gridmap_->atPosition("occupancy", grid_map_pos);
-      in_free = value < 5.0;
-      std::cerr << " = " << value << std::endl;
-    } catch(std::out_of_range e) {
-      std::cerr << " Exception" << e.what() << std::endl;
-      in_free = false;
-    }
-    */
-    bool in_free = true;
-
-    if (particles_population_.size() > 1 && (!in_free || very_low_quality || (low_quality && max_hypo_reached))) {
-      it = particles_population_.erase(it);
-      if (current_amcl_ == *it) {
-        current_amcl_ = particles_population_.front();
-        current_amcl_q_ = low_q_hypo_thereshold_ + 0.1;
-      }
-    } else {
-      ++it;
-    }
-  }
-
-  auto it1 = particles_population_.begin();
-  auto it2 = particles_population_.begin();
-  while (it1 != particles_population_.end()) {
-    while (it2 != particles_population_.end()) {
-      if (*it1 == *it2) {
-        ++it2;
-        continue;
+      for (const auto & layer :  gridmap_->getLayers()) {
+        std::cerr << "L [" << layer << "]" << std::endl;
       }
 
-      double dist_xy, dist_t;
-      get_distances((*it1)->get_pose().pose.pose, (*it2)->get_pose().pose.pose, dist_xy, dist_t);
-      if (dist_xy < hypo_merge_distance_ && dist_t < hypo_merge_angle_) {
-        (*it1)->merge(**it2);
-        it2 = particles_population_.erase(it2);
-        if (current_amcl_ == *it2) {
+      std::cerr << "[" << gridmap_->getSize().x() <<" x " <<  gridmap_->getSize().y() << "]" << std::endl;
+
+      bool in_free;
+      try {
+        float value = gridmap_->atPosition("occupancy", grid_map_pos);
+        in_free = value < 5.0;
+        std::cerr << " = " << value << std::endl;
+      } catch(std::out_of_range e) {
+        std::cerr << " Exception" << e.what() << std::endl;
+        in_free = false;
+      }
+      */
+      bool in_free = true;
+
+      if (particles_population_.size() > 1 && (!in_free || very_low_quality || (low_quality && max_hypo_reached))) {
+        it = particles_population_.erase(it);
+        if (current_amcl_ == *it) {
           current_amcl_ = particles_population_.front();
-          current_amcl_q_ = current_amcl_->get_quality();
+          current_amcl_q_ = low_q_hypo_thereshold_ + 0.1;
         }
       } else {
-        ++it2;
+        ++it;
       }
     }
-    ++it1;
-  }
- 
-  current_amcl_q_ = current_amcl_->get_quality();
 
-  for (const auto & amcl : particles_population_) {
-    if (amcl->get_quality() > good_hypo_thereshold_ &&
-      amcl->get_quality() > (current_amcl_q_ + min_hypo_diff_winner_))
-    {
-      current_amcl_q_ = amcl->get_quality();
-      current_amcl_ = amcl;
+    auto it1 = particles_population_.begin();
+    auto it2 = particles_population_.begin();
+    while (it1 != particles_population_.end()) {
+      while (it2 != particles_population_.end()) {
+        if (*it1 == *it2) {
+          ++it2;
+          continue;
+        }
+
+        double dist_xy, dist_t;
+        get_distances((*it1)->get_pose().pose.pose, (*it2)->get_pose().pose.pose, dist_xy, dist_t);
+        if (dist_xy < hypo_merge_distance_ && dist_t < hypo_merge_angle_) {
+          (*it1)->merge(**it2);
+          it2 = particles_population_.erase(it2);
+          if (current_amcl_ == *it2) {
+            current_amcl_ = particles_population_.front();
+            current_amcl_q_ = current_amcl_->get_quality();
+          }
+        } else {
+          ++it2;
+        }
+      }
+      ++it1;
     }
-  }
-
-  bool is_selected = false;
-  for (const auto & amcl : particles_population_) {
-    if (amcl == current_amcl_) {
-      is_selected = true;
-    }
-  }
-
-  if (!is_selected) {
-    current_amcl_ = particles_population_.front();
+   
     current_amcl_q_ = current_amcl_->get_quality();
+
+    for (const auto & amcl : particles_population_) {
+      if (amcl->get_quality() > good_hypo_thereshold_ &&
+        amcl->get_quality() > (current_amcl_q_ + min_hypo_diff_winner_))
+      {
+        current_amcl_q_ = amcl->get_quality();
+        current_amcl_ = amcl;
+      }
+    }
+
+    bool is_selected = false;
+    for (const auto & amcl : particles_population_) {
+      if (amcl == current_amcl_) {
+        is_selected = true;
+      }
+    }
+
+    if (!is_selected) {
+      current_amcl_ = particles_population_.front();
+      current_amcl_q_ = current_amcl_->get_quality();
+    }
   }
 
   std::cerr << "=====================================" << std::endl;
   for (const auto & amcl : particles_population_) {
     if (amcl == current_amcl_) {
-      RCLCPP_INFO_STREAM(get_logger(), "->\t" << amcl->get_quality());
+      RCLCPP_INFO_STREAM(get_logger(), "Quality ->\t" << amcl->get_quality());
     } else {
       RCLCPP_INFO_STREAM(get_logger(), amcl->get_quality());
     }

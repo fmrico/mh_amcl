@@ -55,7 +55,7 @@ mh_amcl:
     rotation_noise: 0.1
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
-    multihypothesis: True
+    multihypothesis: False
     max_hypotheses: 5
     min_candidate_weight: 0.5
     min_candidate_distance: 1.0
@@ -70,7 +70,7 @@ mh_amcl:
     matcher_0:
       type: matcher2d
       topic: /scan
-    correction_sources: ['laser_0', 'pc_0']
+    correction_sources: ['pc_0']
     laser_0:
       type: laser
       topic: /scan
