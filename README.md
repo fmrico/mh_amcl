@@ -32,7 +32,7 @@ Coomin Soon
 * `octomap_map` (`octomap_msgs/msg/Octomap`): The environmen octomap.
 * `initialpose` (`geometry_msgs/msg/PoseWithCovarianceStamped`): Used for reset the robot's position from Rviz2.
 
-* 'sensor_msgs/msg/LaserScan' and 'sensor_msgs/msg/PointCloud2' depending on the configuration
+* `sensor_msgs/msg/LaserScan` and `sensor_msgs/msg/PointCloud2` depending on the configuration
 
 ### Published Topics:
 * `amcl_pose` (`geometry_msgs::msg::PoseWithCovarianceStamped`): The robot's pose with the covariance associated from the best hypothesis.
