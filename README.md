@@ -2,6 +2,7 @@
 
 # Multi-Hypothesis AMCL (MH-AMCL)
 
+[![](https://img.youtube.com/vi/LnmQ11Ew01g/3.jpg)](https://www.youtube.com/watch?v=LnmQ11Ew01g&feature=youtu.be "Click to play on You Tube")
 [![](https://img.youtube.com/vi/RmY82ApjCMQ/0.jpg)](https://www.youtube.com/watch?v=RmY82ApjCMQ&feature=youtu.be "Click to play on You Tube")
 
 MH-AMCL is a fully functional localization algorithm implementation with [Nav2](https://navigation.ros.org/). The main feature is that it maintains several hypotheses about the robot's position. The algorithm periodically generates new hypotheses on positions where the robot could be, based on the latest laser and map reading. This allows:
@@ -73,4 +74,15 @@ We have included in this package launchers and other files that are usually in t
 
 ## Citing
 
-Coming soon! (we hope)
+```
+@INPROCEEDINGS{10160957,
+  author={García, Alberto and Martín, Francisco and Guerrero, José Miguel and Rodríguez, Francisco J. and Matellán, Vicente},
+  booktitle={2023 IEEE International Conference on Robotics and Automation (ICRA)}, 
+  title={Portable Multi-Hypothesis Monte Carlo Localization for Mobile Robots}, 
+  year={2023},
+  volume={},
+  number={},
+  pages={1933-1939},
+  doi={10.1109/ICRA48891.2023.10160957}}
+
+```
