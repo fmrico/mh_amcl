@@ -103,7 +103,7 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(['not ', use_composition])),
         actions=[
             Node(
-                package='nav2_map_server',
+                package='extended_map_server',
                 executable='map_server',
                 name='map_server',
                 output='screen',
@@ -119,7 +119,10 @@ def generate_launch_description():
                 respawn=use_respawn,
                 respawn_delay=2.0,
                 parameters=[configured_params],
-                remappings=remappings),
+                remappings=remappings,
+                # prefix=['xterm -e gdb -ex run --args'],
+                # arguments=['--ros-args', '--log-level', 'mh_amcl:=debug'],
+            ),
             Node(
                 package='nav2_lifecycle_manager',
                 executable='lifecycle_manager',
@@ -136,8 +139,8 @@ def generate_launch_description():
         target_container=container_name,
         composable_node_descriptions=[
             ComposableNode(
-                package='nav2_map_server',
-                plugin='nav2_map_server::MapServer',
+                package='extended_map_server',
+                plugin='extended_map_server::MapServer',
                 name='map_server',
                 parameters=[configured_params],
                 remappings=remappings),

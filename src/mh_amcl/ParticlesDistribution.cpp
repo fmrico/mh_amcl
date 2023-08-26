@@ -21,12 +21,14 @@
 #include <numeric>
 
 #include "visualization_msgs/msg/marker_array.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
 
-#include "nav2_costmap_2d/costmap_2d.hpp"
-#include "nav2_costmap_2d/cost_values.hpp"
+#include "grid_map_msgs/msg/grid_map.hpp"
+#include "grid_map_ros/grid_map_ros.hpp"
 
 #include "mh_amcl/ParticlesDistribution.hpp"
+
+#include "mh_amcl/LaserCorrecter.hpp"
+#include "mh_amcl/PointCloudCorrecter.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
@@ -59,6 +61,15 @@ ParticlesDistribution::ParticlesDistribution(
   if (!parent_node->has_parameter("init_pos_y")) {
     parent_node->declare_parameter("init_pos_y", 0.0);
   }
+  if (!parent_node->has_parameter("init_pos_z")) {
+    parent_node->declare_parameter("init_pos_z", 0.0);
+  }
+  if (!parent_node->has_parameter("init_pos_pitch")) {
+    parent_node->declare_parameter("init_pos_pitch", 0.0);
+  }
+  if (!parent_node->has_parameter("init_pos_roll")) {
+    parent_node->declare_parameter("init_pos_roll", 0.0);
+  }
   if (!parent_node->has_parameter("init_pos_yaw")) {
     parent_node->declare_parameter("init_pos_yaw", 0.0);
   }
@@ -71,14 +82,17 @@ ParticlesDistribution::ParticlesDistribution(
   if (!parent_node->has_parameter("init_error_yaw")) {
     parent_node->declare_parameter("init_error_yaw", 0.05);
   }
+  if (!parent_node->has_parameter("init_error_pitch")) {
+    parent_node->declare_parameter("init_error_pitch", 0.01);
+  }
+  if (!parent_node->has_parameter("init_error_roll")) {
+    parent_node->declare_parameter("init_error_roll", 0.01);
+  }
   if (!parent_node->has_parameter("translation_noise")) {
     parent_node->declare_parameter("translation_noise", 0.01);
   }
   if (!parent_node->has_parameter("rotation_noise")) {
     parent_node->declare_parameter("rotation_noise", 0.01);
-  }
-  if (!parent_node->has_parameter("distance_perception_error")) {
-    parent_node->declare_parameter("distance_perception_error", 0.05);
   }
   if (!parent_node->has_parameter("reseed_percentage_losers")) {
     parent_node->declare_parameter("reseed_percentage_losers", 0.8);
@@ -107,13 +121,17 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   parent_node_->get_parameter("min_particles", min_particles_);
   parent_node_->get_parameter("init_pos_x", init_pos_x_);
   parent_node_->get_parameter("init_pos_y", init_pos_y_);
+  parent_node_->get_parameter("init_pos_z", init_pos_z_);
   parent_node_->get_parameter("init_pos_yaw", init_pos_yaw_);
+  parent_node_->get_parameter("init_pos_pitch", init_pos_pitch_);
+  parent_node_->get_parameter("init_pos_roll", init_pos_roll_);
   parent_node_->get_parameter("init_error_x", init_error_x_);
   parent_node_->get_parameter("init_error_y", init_error_y_);
   parent_node_->get_parameter("init_error_yaw", init_error_yaw_);
+  parent_node_->get_parameter("init_error_pitch", init_error_pitch_);
+  parent_node_->get_parameter("init_error_roll", init_error_roll_);
   parent_node_->get_parameter("translation_noise", translation_noise_);
   parent_node_->get_parameter("rotation_noise", rotation_noise_);
-  parent_node_->get_parameter("distance_perception_error", distance_perception_error_);
   parent_node_->get_parameter("reseed_percentage_losers", reseed_percentage_losers_);
   parent_node_->get_parameter("reseed_percentage_winners", reseed_percentage_winners_);
   parent_node_->get_parameter("low_q_hypo_thereshold", low_q_hypo_thereshold_);
@@ -121,7 +139,7 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   parent_node_->get_parameter("particles_step", particles_step_);
 
   tf2::Transform init_pose;
-  init_pose.setOrigin(tf2::Vector3(init_pos_x_, init_pos_y_, 0.0));
+  init_pose.setOrigin(tf2::Vector3(init_pos_x_, init_pos_y_, init_pos_z_));
 
   tf2::Quaternion q;
   q.setRPY(0.0, 0.0, init_pos_yaw_);
@@ -337,7 +355,10 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
 {
   std::normal_distribution<double> noise_x(0, init_error_x_);
   std::normal_distribution<double> noise_y(0, init_error_y_);
-  std::normal_distribution<double> noise_t(0, init_error_yaw_);
+  std::normal_distribution<double> noise_z(0, init_error_z_);
+  std::normal_distribution<double> noise_yw(0, init_error_yaw_);
+  std::normal_distribution<double> noise_p(0, init_error_pitch_);
+  std::normal_distribution<double> noise_r(0, init_error_roll_);
 
   particles_.clear();
   particles_.resize((max_particles_ + min_particles_) / 2);
@@ -349,17 +370,19 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
     tf2::Vector3 pose = particle.pose.getOrigin();
     pose.setX(pose.getX() + noise_x(generator_));
     pose.setY(pose.getY() + noise_y(generator_));
-    pose.setZ(0.0);
+    pose.setZ(pose.getZ() + noise_z(generator_));
 
     particle.pose.setOrigin(pose);
 
     double roll, pitch, yaw;
     tf2::Matrix3x3(particle.pose.getRotation()).getRPY(roll, pitch, yaw);
 
-    double newyaw = yaw + noise_t(generator_);
+    double newyaw = yaw + noise_yw(generator_);
+    double newpitch = pitch + noise_p(generator_);
+    double newroll = roll + noise_r(generator_);
 
     tf2::Quaternion q;
-    q.setRPY(roll, pitch, newyaw);
+    q.setRPY(newroll, newpitch, newyaw);
 
     particle.pose.setRotation(q);
   }
@@ -370,10 +393,25 @@ ParticlesDistribution::init(const tf2::Transform & pose_init)
 }
 
 void
-ParticlesDistribution::predict(const tf2::Transform & movement)
+ParticlesDistribution::predict(const tf2::Transform & movement, std::shared_ptr<grid_map::GridMap> gridmap)
 {
+  auto & gridpmap_pos = gridmap->getPosition();
+
   for (auto & particle : particles_) {
     particle.pose = particle.pose * movement * add_noise(movement);
+
+    if (gridmap != nullptr) {
+      auto & pos = particle.pose.getOrigin();
+
+      try {
+        grid_map::Position particle_pos(pos.x(), pos.y());
+        particle_pos = particle_pos + gridpmap_pos;
+        float elevation = gridmap->atPosition("elevation", particle_pos);
+        particle.pose.setOrigin({pos.x(), pos.y(), static_cast<double>(elevation)});
+      } catch (std::out_of_range e) {
+        std::cerr << "Error accessing gridmap pos at " << pos.x() << ", " << pos.y() << ")" << std::endl;
+      }
+    }
   }
   update_pose(pose_);
 }
@@ -391,7 +429,7 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
 
   double x = dm.getOrigin().x() * noise_tra;
   double y = dm.getOrigin().y() * noise_tra;
-  double z = 0.0;
+  double z = dm.getOrigin().z() * noise_tra;
 
   returned_noise.setOrigin(tf2::Vector3(x, y, z));
 
@@ -399,9 +437,11 @@ ParticlesDistribution::add_noise(const tf2::Transform & dm)
   tf2::Matrix3x3(dm.getRotation()).getRPY(roll, pitch, yaw);
 
   double newyaw = yaw * noise_rot;
+  double newpitch = pitch * noise_rot;
+  double newroll = roll * noise_rot;
 
   tf2::Quaternion q;
-  q.setRPY(roll, pitch, newyaw);
+  q.setRPY(newroll, newpitch, newyaw);
   returned_noise.setRotation(q);
 
   return returned_noise;
@@ -452,52 +492,32 @@ ParticlesDistribution::publish_particles(int base_idx, const std_msgs::msg::Colo
 }
 
 void
-ParticlesDistribution::correct_once(
-  const sensor_msgs::msg::LaserScan & scan, const nav2_costmap_2d::Costmap2D & costmap)
+ParticlesDistribution::correct_once(const std::list<CorrecterBase*> & correcters, rclcpp::Time & update_time)
 {
-  std::string error;
-  if (tf_buffer_.canTransform(
-      scan.header.frame_id, "base_footprint", tf2_ros::fromMsg(scan.header.stamp), &error))
-  {
-    auto bf2laser_msg = tf_buffer_.lookupTransform(
-      "base_footprint", scan.header.frame_id, tf2_ros::fromMsg(scan.header.stamp));
-    tf2::fromMsg(bf2laser_msg, bf2laser_);
-  } else {
-    RCLCPP_WARN(
-      parent_node_->get_logger(), "Timeout while waiting TF %s -> base_footprint [%s]",
-      scan.header.frame_id.c_str(), error.c_str());
+  bool new_data = false;
+  for (const auto correcter : correcters) {
+    if (correcter->type_ == "laser") {
+      auto * correcter_casted = dynamic_cast<LaserCorrecter*>(correcter);
+      new_data = new_data || (correcter_casted->last_perception_ != nullptr);
+    }
+    if (correcter->type_ == "pointcloud") {
+      auto * correcter_casted = dynamic_cast<PointCloudCorrecter*>(correcter);
+      new_data = new_data || (correcter_casted->last_perception_ != nullptr);
+    }
+  } 
+  
+  if (!new_data) {
     return;
   }
 
-  const double o = distance_perception_error_;
-
-  static const float inv_sqrt_2pi = 0.3989422804014327;
-  const double normal_comp_1 = inv_sqrt_2pi / o;
-
-  for (auto & p : particles_) {
-    p.hits = 0.0;
-  }
-
-  for (int j = 0; j < scan.ranges.size(); j++) {
-    if (std::isnan(scan.ranges[j]) || std::isinf(scan.ranges[j])) {continue;}
-
-    tf2::Transform laser2point = get_tranform_to_read(scan, j);
-
-    for (int i = 0; i < particles_.size(); i++) {
-      auto & p = particles_[i];
-
-      double calculated_distance = get_error_distance_to_obstacle(
-        p.pose, bf2laser_, laser2point, scan, costmap, o);
-
-      if (!std::isinf(calculated_distance)) {
-        const double a = calculated_distance / o;
-        const double normal_comp_2 = std::exp(-0.5 * a * a);
-
-        double prob = std::clamp(normal_comp_1 * normal_comp_2, 0.0, 1.0);
-        p.prob = std::max(p.prob + prob, 0.000001);
-
-        p.hits += prob;
-      }
+  for (const auto correcter : correcters) {
+    if (correcter->type_ == "laser") {
+      auto * correcter_casted = dynamic_cast<LaserCorrecter*>(correcter);
+      correcter_casted->correct(particles_, update_time);
+    }
+    if (correcter->type_ == "pointcloud") {
+      auto * correcter_casted = dynamic_cast<PointCloudCorrecter*>(correcter);
+      correcter_casted->correct(particles_, update_time);
     }
   }
 
@@ -506,77 +526,17 @@ ParticlesDistribution::correct_once(
   // Calculate quality
   quality_ = 0.0;
   for (auto & p : particles_) {
-    p.hits = p.hits / static_cast<float>(scan.ranges.size());
-    quality_ = std::max(quality_, p.hits);
-  }
-}
-
-tf2::Transform
-ParticlesDistribution::get_tranform_to_read(const sensor_msgs::msg::LaserScan & scan, int index)
-{
-  double dist = scan.ranges[index];
-  double angle = scan.angle_min + static_cast<double>(index) * scan.angle_increment;
-
-  tf2::Transform ret;
-
-  double x = dist * cos(angle);
-  double y = dist * sin(angle);
-
-  ret.setOrigin({x, y, 0.0});
-  ret.setRotation({0.0, 0.0, 0.0, 1.0});
-
-  return ret;
-}
-
-unsigned char
-ParticlesDistribution::get_cost(
-  const tf2::Transform & transform, const nav2_costmap_2d::Costmap2D & costmap)
-{
-  unsigned int mx, my;
-  if (costmap.worldToMap(transform.getOrigin().x(), transform.getOrigin().y(), mx, my)) {
-    return costmap.getCost(mx, my);
-  } else {
-    return nav2_costmap_2d::NO_INFORMATION;
-  }
-}
-
-double
-ParticlesDistribution::get_error_distance_to_obstacle(
-  const tf2::Transform & map2bf, const tf2::Transform & bf2laser,
-  const tf2::Transform & laser2point, const sensor_msgs::msg::LaserScan & scan,
-  const nav2_costmap_2d::Costmap2D & costmap, double o)
-{
-  if (std::isinf(laser2point.getOrigin().x()) || std::isnan(laser2point.getOrigin().x())) {
-    return std::numeric_limits<double>::infinity();
+    if (p.possible_hits > 0.0) {
+      quality_ = std::max(quality_, p.hits / p.possible_hits);
+    }
   }
 
-  tf2::Transform map2laser = map2bf * bf2laser;
-  tf2::Transform map2point = map2laser * laser2point;
-  tf2::Transform map2point_aux = map2point;
-  tf2::Transform uvector;
-  tf2::Vector3 unit = laser2point.getOrigin() / laser2point.getOrigin().length();
-
-  if (get_cost(map2point, costmap) == nav2_costmap_2d::LETHAL_OBSTACLE) {return 0.0;}
-
-  float dist = costmap.getResolution();
-  while (dist < (3.0 * o)) {
-    uvector.setOrigin(unit * dist);
-    // For positive
-    map2point = map2point_aux * uvector;
-    auto cost = get_cost(map2point, costmap);
-
-    if (cost == nav2_costmap_2d::LETHAL_OBSTACLE) {return dist;}
-
-    // For negative
-    uvector.setOrigin(uvector.getOrigin() * -1.0);
-    map2point = map2point_aux * uvector;
-    cost = get_cost(map2point, costmap);
-
-    if (cost == nav2_costmap_2d::LETHAL_OBSTACLE) {return dist;}
-    dist = dist + costmap.getResolution();
+  if (quality_ > 0.0) {
+    for (auto & p : particles_) {
+      p.hits = 0.0;
+      p.possible_hits = 0.0;
+    }
   }
-
-  return std::numeric_limits<double>::infinity();
 }
 
 void
@@ -619,7 +579,9 @@ ParticlesDistribution::reseed()
   std::normal_distribution<double> selector(0, number_winners);
   std::normal_distribution<double> noise_x(0, init_error_x_ * init_error_x_);
   std::normal_distribution<double> noise_y(0, init_error_y_ * init_error_y_);
-  std::normal_distribution<double> noise_t(0, init_error_yaw_ * init_error_yaw_);
+  std::normal_distribution<double> noise_yw(0, init_error_yaw_ * init_error_yaw_);
+  std::normal_distribution<double> noise_p(0, init_error_pitch_ * init_error_pitch_);
+  std::normal_distribution<double> noise_r(0, init_error_roll_ * init_error_roll_);
 
   for (int i = 0; i < number_losers; i++) {
     int index = std::clamp(static_cast<int>(selector(generator_)), 0, number_winners);
@@ -639,12 +601,18 @@ ParticlesDistribution::reseed()
     tf2::Matrix3x3 m(particles_[i].pose.getRotation());
     m.getRPY(roll, pitch, yaw);
 
-    double newyaw = yaw + noise_t(generator_);
+    double newyaw = yaw + noise_yw(generator_);
     while (newyaw > M_PI) {newyaw -= 2.0 * M_PI;}
     while (newyaw < -M_PI) {newyaw += 2.0 * M_PI;}
+    double newpitch = pitch + noise_p(generator_);
+    while (newpitch > M_PI) {newpitch -= 2.0 * M_PI;}
+    while (newpitch < -M_PI) {newpitch += 2.0 * M_PI;}
+    double newroll = roll + noise_r(generator_);
+    while (newroll > M_PI) {newroll -= 2.0 * M_PI;}
+    while (newroll < -M_PI) {newroll += 2.0 * M_PI;}
 
     tf2::Quaternion q;
-    q.setRPY(roll, pitch, newyaw);
+    q.setRPY(newroll, newpitch, newyaw);
 
     p.pose.setRotation(q);
 

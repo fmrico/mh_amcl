@@ -37,6 +37,8 @@
 #include "nav2_costmap_2d/costmap_2d_publisher.hpp"
 #include "nav2_costmap_2d/cost_values.hpp"
 
+#include "mh_amcl/LaserCorrecter.hpp"
+#include "mh_amcl/PointCloudCorrecter.hpp"
 #include "mh_amcl/MH_AMCL.hpp"
 
 #include "rclcpp/rclcpp.hpp"
@@ -53,11 +55,15 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   tf_buffer_(),
   tf_listener_(tf_buffer_)
 {
-  sub_laser_ = create_subscription<sensor_msgs::msg::LaserScan>(
-    "scan", rclcpp::QoS(100).best_effort(), std::bind(&MH_AMCL_Node::laser_callback, this, _1));
-  sub_map_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
-    "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
-    std::bind(&MH_AMCL_Node::map_callback, this, _1));
+  sub_gridmap_ = create_subscription<grid_map_msgs::msg::GridMap>(
+    "grid_map_map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+    std::bind(&MH_AMCL_Node::gridmap_callback, this, _1));
+
+  sub_octomap_ = create_subscription<octomap_msgs::msg::Octomap>(
+    "octomap_map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+    std::bind(&MH_AMCL_Node::octomap_callback, this, _1));
+
+
   sub_init_pose_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
     "initialpose", 100, std::bind(&MH_AMCL_Node::initpose_callback, this, _1));
   pose_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("amcl_pose", 1);
@@ -74,6 +80,14 @@ MH_AMCL_Node::MH_AMCL_Node(const rclcpp::NodeOptions & options)
   declare_parameter<double>("hypo_merge_angle", 0.3);
   declare_parameter<float>("good_hypo_thereshold", 0.6);
   declare_parameter<float>("min_hypo_diff_winner", 0.2);
+
+  std::vector<std::string> correction_sources;
+  declare_parameter("correction_sources", correction_sources);
+
+  std::vector<std::string> matchers;
+  declare_parameter("matchers", matchers);
+
+  gridmap_ = std::make_shared<grid_map::GridMap>();
 }
 
 using CallbackReturnT =
@@ -96,6 +110,48 @@ MH_AMCL_Node::on_configure(const rclcpp_lifecycle::State & state)
   get_parameter("good_hypo_thereshold", good_hypo_thereshold_);
   get_parameter("min_hypo_diff_winner", min_hypo_diff_winner_);
 
+  std::vector<std::string> correction_sources;
+  get_parameter("correction_sources", correction_sources);
+
+  for (const auto & correction_source : correction_sources) {
+    std::string correction_source_type;
+    declare_parameter(correction_source + ".type", correction_source_type);
+    get_parameter(correction_source + ".type", correction_source_type);
+
+    CorrecterBase * correcter;
+    if (correction_source_type == "laser") {
+      correcter = new LaserCorrecter(correction_source, shared_from_this(), octomap_);
+    }
+    if (correction_source_type == "pointcloud") {
+      correcter = new PointCloudCorrecter(correction_source, shared_from_this(), octomap_);
+    }
+
+    correcter->type_ = correction_source_type;
+    correcters_.push_back(correcter);
+    RCLCPP_INFO(
+      get_logger(), "Created corrected [%s] (type [%s])",
+      correction_source.c_str(), correction_source_type.c_str());
+  }
+
+  std::vector<std::string> matchers;
+  get_parameter("matchers", matchers);
+
+  for (const auto & matcher : matchers) {
+    std::string matchers_type;
+    declare_parameter(matcher + ".type", matchers_type);
+    get_parameter(matcher + ".type", matchers_type);
+
+    MapMatcherBase * new_matcher;
+    if (matchers_type == "matcher2d") {
+      new_matcher = new MapMatcher(matcher, shared_from_this());
+    }
+
+    new_matcher->type_ = matchers_type;
+    matchers_.push_back(new_matcher);
+    RCLCPP_INFO(
+      get_logger(), "Created matcher [%s] (type [%s])",
+      matcher.c_str(), matchers_type.c_str());
+  }
 
   current_amcl_ = std::make_shared<ParticlesDistribution>(shared_from_this());
   current_amcl_q_ = 1.0;
@@ -135,12 +191,14 @@ MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
   predict_timer_ = create_wall_timer(10ms, std::bind(&MH_AMCL_Node::predict, this));
   correct_timer_ = create_wall_timer(100ms, std::bind(&MH_AMCL_Node::correct, this));
   reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this));
-  hypotesys_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::manage_hypotesis, this));
+  hypotesis_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::manage_hypotesis, this));
 
   publish_particles_timer_ = create_wall_timer(
     100ms, std::bind(&MH_AMCL_Node::publish_particles, this));
   publish_position_timer_ = create_wall_timer(
     30ms, std::bind(&MH_AMCL_Node::publish_position, this));
+  publish_position_tf_timer_ = create_wall_timer(
+    10ms, std::bind(&MH_AMCL_Node::publish_position_tf, this));
 
   std::list<CallbackReturnT> ret;
   for (auto & particles : particles_population_) {
@@ -170,7 +228,7 @@ MH_AMCL_Node::on_deactivate(const rclcpp_lifecycle::State & state)
   reseed_timer_ = nullptr;
   publish_particles_timer_ = nullptr;
   publish_position_timer_ = nullptr;
-  hypotesys_timer_ = nullptr;
+  hypotesis_timer_ = nullptr;
 
   std::list<CallbackReturnT> ret;
   for (auto & particles : particles_population_) {
@@ -240,7 +298,7 @@ MH_AMCL_Node::predict()
       tf2::Transform bfprev2bf = odom2prevbf_.inverse() * odom2bf;
 
       for (auto & particles : particles_population_) {
-        particles->predict(bfprev2bf);
+        particles->predict(bfprev2bf, gridmap_);
       }
     }
 
@@ -251,18 +309,22 @@ MH_AMCL_Node::predict()
   RCLCPP_DEBUG_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
 }
 
+
 void
-MH_AMCL_Node::map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
+MH_AMCL_Node::gridmap_callback(const grid_map_msgs::msg::GridMap::ConstSharedPtr & msg)
 {
-  costmap_ = std::make_shared<nav2_costmap_2d::Costmap2D>(*msg);
-  matcher_ = std::make_shared<mh_amcl::MapMatcher>(*msg);
+  grid_map::GridMapRosConverter::fromMessage(*msg, *gridmap_);
 }
 
 void
-MH_AMCL_Node::laser_callback(sensor_msgs::msg::LaserScan::UniquePtr lsr_msg)
+MH_AMCL_Node::octomap_callback(const octomap_msgs::msg::Octomap::ConstSharedPtr & msg)
 {
-  last_laser_ = std::move(lsr_msg);
-  counter_ = 0;
+  octomap::OcTree * ao = dynamic_cast<octomap::OcTree*>(octomap_msgs::msgToMap(*msg));
+  octomap_ = std::shared_ptr<octomap::OcTree>(ao);
+  octomap_->setProbHit(0.7);
+  octomap_->setProbMiss(0.4);
+  octomap_->setClampingThresMax(0.97);
+  octomap_->setClampingThresMin(0.12);
 }
 
 void
@@ -270,15 +332,13 @@ MH_AMCL_Node::correct()
 {
   auto start = now();
 
-  if (last_laser_ == nullptr || last_laser_->ranges.empty() || costmap_ == nullptr) {
-    return;
-  }
-
   for (auto & particles : particles_population_) {
-    particles->correct_once(*last_laser_, *costmap_);
+    particles->correct_once(correcters_, last_time_);
   }
 
-  last_time_ = last_laser_->header.stamp;
+  for (auto & correcter : correcters_) {
+    correcter->clear_perception();
+  }
 
   RCLCPP_DEBUG_STREAM(get_logger(), "Correct [" << (now() - start).seconds() << " secs]");
 }
@@ -336,10 +396,6 @@ MH_AMCL_Node::initpose_callback(
 void
 MH_AMCL_Node::publish_position()
 {
-  if (costmap_ == nullptr || last_laser_ == nullptr) {
-    return;
-  }
-
   geometry_msgs::msg::PoseWithCovarianceStamped pose = current_amcl_->get_pose();
 
   // Publish pose
@@ -366,8 +422,13 @@ MH_AMCL_Node::publish_position()
 
     particles_pub_->publish(particles_msgs);
   }
+}
 
+void
+MH_AMCL_Node::publish_position_tf()
+{
   // Publish tf map -> odom
+  geometry_msgs::msg::PoseWithCovarianceStamped pose = current_amcl_->get_pose();
 
   tf2::Transform map2robot;
   tf2::Stamped<tf2::Transform> robot2odom;
@@ -414,130 +475,141 @@ MH_AMCL_Node::toMsg(const tf2::Transform & tf)
 void
 MH_AMCL_Node::manage_hypotesis()
 {
-  if (last_laser_ == nullptr || costmap_ == nullptr || matcher_ == nullptr) {return;}
+  if (matchers_.empty()) {return;}
 
-  if (!multihypothesis_) {return;}
+  if (multihypothesis_) {
+    std::list<TransformWeighted> tfs;
+    for (auto matcher : matchers_) {
+      tfs.merge(matcher->get_matchs());
+    }
 
-  const auto & tfs = matcher_->get_matchs(*last_laser_);
+    // Create new Hypothesis
+    for (const auto & transform : tfs) {
+      if (transform.weight > min_candidate_weight_) {
+        bool covered = false;
 
-  // Create new Hypothesis
-  for (const auto & transform : tfs) {
-    if (transform.weight > min_candidate_weight_) {
-      bool covered = false;
+        for (const auto & distr : particles_population_) {
+          const auto & pose = distr->get_pose().pose.pose;
+          geometry_msgs::msg::Pose posetf = toMsg(transform.transform);
 
-      for (const auto & distr : particles_population_) {
-        const auto & pose = distr->get_pose().pose.pose;
-        geometry_msgs::msg::Pose posetf = toMsg(transform.transform);
+          double dist, difft;
+          get_distances(pose, posetf, dist, difft);
 
-        double dist, difft;
-        get_distances(pose, posetf, dist, difft);
+          if (dist < min_candidate_distance_ && difft < min_candidate_angle_) {
+            covered = true;
+          }
+        }
 
-        if (dist < min_candidate_distance_ && difft < min_candidate_angle_) {
-          covered = true;
+        if (!covered && particles_population_.size() < max_hypotheses_) {
+          std::cerr << "Create new Particle Distribution " << std::endl;
+          auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
+          aux_distr->on_configure(get_current_state());
+          aux_distr->init(transform.transform);
+          aux_distr->on_activate(get_current_state());
+          particles_population_.push_back(aux_distr);
         }
       }
 
-      if (!covered && particles_population_.size() < max_hypotheses_) {
-        auto aux_distr = std::make_shared<ParticlesDistribution>(shared_from_this());
-        aux_distr->on_configure(get_current_state());
-        aux_distr->init(transform.transform);
-        aux_distr->on_activate(get_current_state());
-        particles_population_.push_back(aux_distr);
-      }
+      if (particles_population_.size() == max_hypotheses_) {break;}
     }
 
-    if (particles_population_.size() == max_hypotheses_) {break;}
-  }
+    auto it = particles_population_.begin();
+    while (it != particles_population_.end()) {
+      bool low_quality = (*it)->get_quality() < low_q_hypo_thereshold_;
+      bool very_low_quality = (*it)->get_quality() < very_low_q_hypo_thereshold_;
+      bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
 
-  auto it = particles_population_.begin();
-  while (it != particles_population_.end()) {
-    bool low_quality = (*it)->get_quality() < low_q_hypo_thereshold_;
-    bool very_low_quality = (*it)->get_quality() < very_low_q_hypo_thereshold_;
-    bool max_hypo_reached = particles_population_.size() == max_hypotheses_;
-    bool in_free = get_cost((*it)->get_pose().pose.pose) == nav2_costmap_2d::FREE_SPACE;
+      /*grid_map::Position grid_map_pos((*it)->get_pose().pose.pose.position.x, (*it)->get_pose().pose.pose.position.y);
+      std::cerr << "Asking for the pose (" << (*it)->get_pose().pose.pose.position.x << ", " <<
+        (*it)->get_pose().pose.pose.position.y << ")" ;
 
-    if (particles_population_.size() > 1 &&
-      (!in_free || very_low_quality || (low_quality && max_hypo_reached)))
-    {
-      it = particles_population_.erase(it);
-      if (current_amcl_ == *it) {
-        current_amcl_ = particles_population_.front();
-        current_amcl_q_ = low_q_hypo_thereshold_ + 0.1;
-      }
-    } else {
-      ++it;
-    }
-  }
-
-  auto it1 = particles_population_.begin();
-  auto it2 = particles_population_.begin();
-  while (it1 != particles_population_.end()) {
-    while (it2 != particles_population_.end()) {
-      if (*it1 == *it2) {
-        ++it2;
-        continue;
+      for (const auto & layer :  gridmap_->getLayers()) {
+        std::cerr << "L [" << layer << "]" << std::endl;
       }
 
-      double dist_xy, dist_t;
-      get_distances((*it1)->get_pose().pose.pose, (*it2)->get_pose().pose.pose, dist_xy, dist_t);
-      if (dist_xy < hypo_merge_distance_ && dist_t < hypo_merge_angle_) {
-        (*it1)->merge(**it2);
-        it2 = particles_population_.erase(it2);
-        if (current_amcl_ == *it2) {
+      std::cerr << "[" << gridmap_->getSize().x() <<" x " <<  gridmap_->getSize().y() << "]" << std::endl;
+
+      bool in_free;
+      try {
+        float value = gridmap_->atPosition("occupancy", grid_map_pos);
+        in_free = value < 5.0;
+        std::cerr << " = " << value << std::endl;
+      } catch(std::out_of_range e) {
+        std::cerr << " Exception" << e.what() << std::endl;
+        in_free = false;
+      }
+      */
+      bool in_free = true;
+
+      if (particles_population_.size() > 1 && (!in_free || very_low_quality || (low_quality && max_hypo_reached))) {
+        it = particles_population_.erase(it);
+        if (current_amcl_ == *it) {
           current_amcl_ = particles_population_.front();
-          current_amcl_q_ = current_amcl_->get_quality();
+          current_amcl_q_ = low_q_hypo_thereshold_ + 0.1;
         }
       } else {
-        ++it2;
+        ++it;
       }
     }
-    ++it1;
-  }
 
-  current_amcl_q_ = current_amcl_->get_quality();
+    auto it1 = particles_population_.begin();
+    auto it2 = particles_population_.begin();
+    while (it1 != particles_population_.end()) {
+      while (it2 != particles_population_.end()) {
+        if (*it1 == *it2) {
+          ++it2;
+          continue;
+        }
 
-  for (const auto & amcl : particles_population_) {
-    if (amcl->get_quality() > good_hypo_thereshold_ &&
-      amcl->get_quality() > (current_amcl_q_ + min_hypo_diff_winner_))
-    {
-      current_amcl_q_ = amcl->get_quality();
-      current_amcl_ = amcl;
+        double dist_xy, dist_t;
+        get_distances((*it1)->get_pose().pose.pose, (*it2)->get_pose().pose.pose, dist_xy, dist_t);
+        if (dist_xy < hypo_merge_distance_ && dist_t < hypo_merge_angle_) {
+          (*it1)->merge(**it2);
+          it2 = particles_population_.erase(it2);
+          if (current_amcl_ == *it2) {
+            current_amcl_ = particles_population_.front();
+            current_amcl_q_ = current_amcl_->get_quality();
+          }
+        } else {
+          ++it2;
+        }
+      }
+      ++it1;
     }
-  }
-
-  bool is_selected = false;
-  for (const auto & amcl : particles_population_) {
-    if (amcl == current_amcl_) {
-      is_selected = true;
-    }
-  }
-
-  if (!is_selected) {
-    current_amcl_ = particles_population_.front();
+   
     current_amcl_q_ = current_amcl_->get_quality();
+
+    for (const auto & amcl : particles_population_) {
+      if (amcl->get_quality() > good_hypo_thereshold_ &&
+        amcl->get_quality() > (current_amcl_q_ + min_hypo_diff_winner_))
+      {
+        current_amcl_q_ = amcl->get_quality();
+        current_amcl_ = amcl;
+      }
+    }
+
+    bool is_selected = false;
+    for (const auto & amcl : particles_population_) {
+      if (amcl == current_amcl_) {
+        is_selected = true;
+      }
+    }
+
+    if (!is_selected) {
+      current_amcl_ = particles_population_.front();
+      current_amcl_q_ = current_amcl_->get_quality();
+    }
   }
 
   std::cerr << "=====================================" << std::endl;
   for (const auto & amcl : particles_population_) {
     if (amcl == current_amcl_) {
-      std::cerr << "->\t";
+      RCLCPP_INFO_STREAM(get_logger(), "Quality ->\t" << amcl->get_quality());
+    } else {
+      RCLCPP_INFO_STREAM(get_logger(), amcl->get_quality());
     }
-    std::cerr << amcl->get_quality() << std::endl;
   }
   std::cerr << "=====================================" << std::endl;
-}
-
-unsigned char
-MH_AMCL_Node::get_cost(const geometry_msgs::msg::Pose & pose)
-{
-  unsigned int i, j;
-  costmap_->worldToMap(pose.position.x, pose.position.y, i, j);
-
-  if (i > 0 && j > 0 && i < costmap_->getSizeInCellsX() && j < costmap_->getSizeInCellsY()) {
-    return costmap_->getCost(i, j);
-  } else {
-    return nav2_costmap_2d::NO_INFORMATION;
-  }
 }
 
 void

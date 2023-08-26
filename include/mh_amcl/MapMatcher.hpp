@@ -27,25 +27,21 @@
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 
+#include "mh_amcl/MapMatcherBase.hpp"
+
 #include "rclcpp/rclcpp.hpp"
 
 
 namespace mh_amcl
 {
 
-typedef struct
-{
-  float weight;
-  tf2::Transform transform;
-} TransformWeighted;
-
-bool operator<(const TransformWeighted & tw1, const TransformWeighted & tw2);
-
-class MapMatcher
+class MapMatcher : public MapMatcherBase
 {
 public:
-  explicit MapMatcher(const nav_msgs::msg::OccupancyGrid & map);
-  std::list<TransformWeighted> get_matchs(const sensor_msgs::msg::LaserScan & scan);
+  explicit MapMatcher(
+    const std::string & name, 
+    std::shared_ptr<nav2_util::LifecycleNode> parent_node);
+  std::list<TransformWeighted> get_matchs();
 
 protected:
   static const int NUM_LEVEL_SCALE_COSTMAP = 4;
@@ -61,6 +57,16 @@ protected:
     const std::vector<tf2::Vector3> & scan, tf2::Transform & transform);
 
   std::vector<std::shared_ptr<nav2_costmap_2d::Costmap2D>> costmaps_;
+  std::shared_ptr<nav2_util::LifecycleNode> parent_node_;
+
+  void laser_callback(sensor_msgs::msg::LaserScan::UniquePtr msg);
+  void map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
+
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
+   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
+
+  sensor_msgs::msg::LaserScan::UniquePtr last_perception_;
+  std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_;
 };
 
 nav_msgs::msg::OccupancyGrid toMsg(const nav2_costmap_2d::Costmap2D & costmap);

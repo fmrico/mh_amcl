@@ -15,6 +15,12 @@ find_package(tf2_ros)
 find_package(tf2)
 find_package(nav2_util)
 find_package(nav2_msgs)
+find_package(grid_map_msgs)
+find_package(grid_map_ros)
+find_package(octomap_msgs)
+find_package(octomap_ros)
+find_package(pcl_conversions REQUIRED)
+find_package(pcl_ros REQUIRED)
 
 set(dependencies
   rclcpp
@@ -28,21 +34,28 @@ set(dependencies
   tf2
   nav2_util
   nav2_msgs
+  grid_map_msgs
+  grid_map_ros
+  octomap_msgs
+  octomap_ros
+  pcl_conversions
+  pcl_ros
 )
 
 include_directories(
   include
-  ${CERES_INCLUDE_DIRS}
-  ${PCL_INCLUDE_DIRS}
 )
 
 add_library(${PROJECT_NAME}
   src/${PROJECT_NAME}/MH_AMCL.cpp
+  src/${PROJECT_NAME}/MapMatcherBase.cpp
   src/${PROJECT_NAME}/MapMatcher.cpp
   src/${PROJECT_NAME}/ParticlesDistribution.cpp
+  src/${PROJECT_NAME}/LaserCorrecter.cpp
+  src/${PROJECT_NAME}/PointCloudCorrecter.cpp
+  src/${PROJECT_NAME}/Utils.cpp
 )
 ament_target_dependencies(${PROJECT_NAME} ${dependencies})
-target_link_libraries(${PROJECT_NAME} ${CERES_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(mh_amcl_program
   src/mh_amcl_program.cpp

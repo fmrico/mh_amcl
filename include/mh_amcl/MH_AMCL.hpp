@@ -38,7 +38,17 @@
 
 #include "nav2_costmap_2d/costmap_2d.hpp"
 #include "mh_amcl/ParticlesDistribution.hpp"
+
+#include "grid_map_msgs/msg/grid_map.hpp"
+#include "grid_map_ros/grid_map_ros.hpp"
+
+#include "octomap_msgs/msg/octomap.hpp"
+#include "octomap_msgs/conversions.h"
+#include "octomap_ros/conversions.hpp"
+#include "octomap/octomap.h"
+
 #include "mh_amcl/MapMatcher.hpp"
+#include "mh_amcl/Correcter.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
@@ -67,6 +77,7 @@ protected:
   void reseed();
   void publish_particles();
   void publish_position();
+  void publish_position_tf();
   void manage_hypotesis();
 
   void get_distances(
@@ -76,8 +87,9 @@ protected:
   geometry_msgs::msg::Pose toMsg(const tf2::Transform & tf);
 
 private:
-  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_map_;
-  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_laser_;
+  rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr sub_gridmap_;
+  rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr sub_octomap_;
+
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_init_pose_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav2_msgs::msg::ParticleCloud>::SharedPtr particles_pub_;
@@ -85,9 +97,10 @@ private:
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;
   rclcpp::TimerBase::SharedPtr reseed_timer_;
-  rclcpp::TimerBase::SharedPtr hypotesys_timer_;
+  rclcpp::TimerBase::SharedPtr hypotesis_timer_;
   rclcpp::TimerBase::SharedPtr publish_particles_timer_;
   rclcpp::TimerBase::SharedPtr publish_position_timer_;
+  rclcpp::TimerBase::SharedPtr publish_position_tf_timer_;
 
   int max_hypotheses_;
   bool multihypothesis_;
@@ -114,12 +127,15 @@ private:
   tf2::Stamped<tf2::Transform> odom2prevbf_;
   bool valid_prev_odom2bf_ {false};
 
-  std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_;
-  sensor_msgs::msg::LaserScan::UniquePtr last_laser_;
-  std::shared_ptr<mh_amcl::MapMatcher> matcher_;
+  std::shared_ptr<grid_map::GridMap> gridmap_;
+  std::shared_ptr<octomap::OcTree> octomap_;
 
-  void map_callback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
-  void laser_callback(sensor_msgs::msg::LaserScan::UniquePtr lsr_msg);
+  std::list<MapMatcherBase*> matchers_;
+  std::list<CorrecterBase*> correcters_;
+
+  void gridmap_callback(const grid_map_msgs::msg::GridMap::ConstSharedPtr & msg);
+  void octomap_callback(const octomap_msgs::msg::Octomap::ConstSharedPtr & msg);
+
   void initpose_callback(
     const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr & pose_msg);
   int counter_ {0};
