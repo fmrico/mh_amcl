@@ -2,7 +2,7 @@
 
 # Multi-Hypothesis AMCL (MH-AMCL)
 
-[![](https://img.youtube.com/vi/LnmQ11Ew01g/3.jpg)](https://www.youtube.com/watch?v=LnmQ11Ew01g&feature=youtu.be "Click to play on You Tube")
+[![](https://img.youtube.com/vi/LnmQ11Ew01g/0.jpg)](https://www.youtube.com/watch?v=LnmQ11Ew01g&feature=youtu.be "Click to play on You Tube")
 [![](https://img.youtube.com/vi/RmY82ApjCMQ/0.jpg)](https://www.youtube.com/watch?v=RmY82ApjCMQ&feature=youtu.be "Click to play on You Tube")
 
 MH-AMCL is a fully functional localization algorithm implementation with [Nav2](https://navigation.ros.org/). The main feature is that it maintains several hypotheses about the robot's position. The algorithm periodically generates new hypotheses on positions where the robot could be, based on the latest laser and map reading. This allows:
