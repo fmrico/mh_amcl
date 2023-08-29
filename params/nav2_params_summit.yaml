@@ -43,7 +43,7 @@ mh_amcl:
   ros__parameters:
     use_sim_time: True
     max_particles: 200
-    min_particles: 30
+    min_particles: 60
     particles_step: 30
     init_pos_x: 0.0
     init_pos_y: 0.0
@@ -54,11 +54,11 @@ mh_amcl:
     init_error_x: 0.1
     init_error_y: 0.1
     init_error_z: 0.1
-    init_error_yaw: 0.05
+    init_error_yaw: 0.02
     init_error_pitch: 0.01
     init_error_roll: 0.01
-    translation_noise: 0.1
-    rotation_noise: 0.1
+    translation_noise: 0.05
+    rotation_noise: 0.05
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
     multihypothesis: False
@@ -76,16 +76,16 @@ mh_amcl:
     matcher_0:
       type: matcher2d
       topic: /front_laser/scan
-    correction_sources: ['front_laser']
+    correction_sources: ['front_laser', 'pc_0']
     front_laser:
       type: laser
       topic: /front_laser/scan
-      distance_perception_error: 0.05
+      distance_perception_error: 0.02
       debug: true
     rear_laser:
       type: laser
       topic: /rear_laser/scan
-      distance_perception_error: 0.05
+      distance_perception_error: 0.02
     pc_0:
       type: pointcloud
       topic: /velodyne_points

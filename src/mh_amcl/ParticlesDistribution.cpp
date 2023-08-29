@@ -570,9 +570,10 @@ ParticlesDistribution::reseed()
     }
   }
 
-  int number_losers = number_particles * percentage_losers;
-  int number_no_losers = number_particles - number_losers;
-  int number_winners = number_particles * percentage_winners;
+  int number_losers = std::max(1, static_cast<int>(number_particles * percentage_losers));
+  int number_no_losers = std::max(1, static_cast<int>(number_particles - number_losers));
+  int number_winners = std::max(1, static_cast<int>(number_particles * percentage_winners));
+
 
   std::vector<Particle> new_particles(particles_.begin(), particles_.begin() + number_no_losers);
 
