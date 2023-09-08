@@ -1,14 +1,14 @@
 image: lab_3d.pgm
 mode: trinary
-resolution: 0.1
+resolution: 0.05
 origin: [-5.3, -5.2, 0]
 negate: 0
 occupied_thresh: 0.65
 free_thresh: 0.25
 #  elevation layer
 elevation_image: lab_3d_ele.pgm
-min_height: -1.45
-max_height: 0.25
+min_height: -1.48
+max_height: 0.325
 #  octomap
 octomap_file: lab_3d_octo.ot
 binary: false
