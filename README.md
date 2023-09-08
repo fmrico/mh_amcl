@@ -1,13 +1,15 @@
-[![main](https://github.com/fmrico/mh_amcl/actions/workflows/main.yaml/badge.svg)](https://github.com/fmrico/mh_amcl/actions/workflows/main.yaml)
+[![main](https://github.com/navigation-gridmap/mh_amcl/actions/workflows/main.yaml/badge.svg)](https://github.com/navigation-gridmap/mh_amcl/actions/workflows/main.yaml)
 
-# Multi-Hypothesis AMCL (MH-AMCL)
+# Multi-Hypothesis AMCL (MH-AMCL) in non-planar environments
 
-[![](https://img.youtube.com/vi/LnmQ11Ew01g/0.jpg)](https://www.youtube.com/watch?v=LnmQ11Ew01g&feature=youtu.be "Click to play on You Tube")
-[![](https://img.youtube.com/vi/RmY82ApjCMQ/0.jpg)](https://www.youtube.com/watch?v=RmY82ApjCMQ&feature=youtu.be "Click to play on You Tube")
+[![](https://img.youtube.com/vi/GkCaiirI8f8/0.jpg)](https://www.youtube.com/watch?v=GkCaiirI8f8&feature=youtu.be "Click to play on You Tube")
+[![](https://img.youtube.com/vi/bIf0aU-H2yg/0.jpg)](https://www.youtube.com/watch?v=bIf0aU-H2yg&feature=youtu.be "Click to play on You Tube")
 
 MH-AMCL is a fully functional localization algorithm implementation with [Nav2](https://navigation.ros.org/). The main feature is that it maintains several hypotheses about the robot's position. The algorithm periodically generates new hypotheses on positions where the robot could be, based on the latest laser and map reading. This allows:
 * Total unknown the position of the robot.
 * Recover from erroneous estimates and hijacks.
+
+**The version in this repo is for non-planar environments, using the [Extended Map Server](https://github.com/navigation-gridmap/extended_map_server)**
 
 ## Build
 
@@ -21,22 +23,16 @@ colcon build --symlink-install
 
 ## Run
 
-We have included in this package launchers and other files that are usually in the `nav2_bringup` package in order to have a demo of its operation:
-
-* To run in the simulation with a Turtlebot 3: `ros2 launch mh_amcl tb3_simulation_launch.py`
-[![](https://img.youtube.com/vi/j0iQpAx-pbc/0.jpg)](https://www.youtube.com/watch?v=j0iQpAx-pbc&feature=youtu.be "Click to play on You Tube")
-
-
-* To run in the simulation with a real robot (Tiago):
-  * `ros2 launch mh_amcl tiago_launch.py`
-  * If you don't have the robot, you can launch a demo ros2 bag with real data below: `ros2 bag play test/rosbag2_2022_09_01-11_42_10`
+Coomin Soon
   
 ## Details
 
 ### Suscribed Topics:
-* `scan` (`sensor_msgs/msg/LaserScan`): Laser readings.
-* `map` (`nav_msgs/msg/OccupancyGrid`): The environmen map.
+* `grid_map_map` (`grid_map_msgs/msg/GridMap`): The environmen gridmap containig elevation and occupancy layers.
+* `octomap_map` (`octomap_msgs/msg/Octomap`): The environmen octomap.
 * `initialpose` (`geometry_msgs/msg/PoseWithCovarianceStamped`): Used for reset the robot's position from Rviz2.
+
+* `sensor_msgs/msg/LaserScan` and `sensor_msgs/msg/PointCloud2` depending on the configuration
 
 ### Published Topics:
 * `amcl_pose` (`geometry_msgs::msg::PoseWithCovarianceStamped`): The robot's pose with the covariance associated from the best hypothesis.
@@ -69,11 +65,91 @@ We have included in this package launchers and other files that are usually in t
 * `very_low_q_hypo_thereshold` (float, 0.10): A hypothesis is considered very low quality and should be removed under this threshold.
 * `hypo_merge_distance` (double, 0.3): Distance under consideration to merge two hypotesese (angle and distance shpuld meet).
 * `hypo_merge_angle` (double, 0.5): Angle to consider merging two hypotheses (angle and distance should meet).
-* `good_hypo_thereshold` double, 0.5): Threshold to consider a hypothesis to be selected as the newly selected hypothesis for the algorithm's output.
-* `min_hypo_diff_winner` double, 0.3): An hypothesis should have a quality `min_hypo_diff_winner` better than the currently selected hypothesis to be the newly selected hypothesis. Low values could lead to continuing changes between the two hypotheses. High values could make it impossible to consider other hypotheses.
+* `good_hypo_thereshold` (double, 0.5): Threshold to consider a hypothesis to be selected as the newly selected hypothesis for the algorithm's output.
+* `min_hypo_diff_winner` (double, 0.3): An hypothesis should have a quality `min_hypo_diff_winner` better than the currently selected hypothesis to be the newly selected hypothesis. Low values could lead to continuing changes between the two hypotheses. High values could make it impossible to consider other hypotheses.
+* `matchers` (String[], ""): List of matchers, which provides hypothesis of other prabable robot positions.
+  * `type` (String): type of matcher.
+  * For type == `matcher2d`:
+    * `topic` (String): Topic of the perception source used
+* `correction_sources` (String[], ""): List of perception sources.
+  * `type` (String): Type of the corrector in [`laser`, `pointcloud`]
+  *  For type == `laser`:
+    *   `topic` (String, `/perception`: Topic of the perception source
+    *   `distance_perception_error` (double, 0.05): Mean of the expected perception error.
+  *  For type == `pointcloud`:
+    *   `topic` (String, `/perception`: Topic of the perception source
+    *   `distance_perception_error` (double, 0.05): Mean of the expected perception error.
+    *   `max_perception_distance` (double, 10.0): Maximun range of the sensor.
+    *   `point_step` (double, 1): The point step for a sensor reading. 1 means that all the readings will be used. 50 means that only one point out of 50 is used. This is used to reduce the CPU load.
+
+Example:
+
+```
+mh_amcl:
+  ros__parameters:
+    use_sim_time: True
+    max_particles: 200
+    min_particles: 30
+    particles_step: 30
+    init_pos_x: 0.0
+    init_pos_y: 0.0
+    init_pos_z: 0.3
+    init_pos_yaw: 0.0
+    init_pos_pitch: 0.0
+    init_pos_roll: 0.0
+    init_error_x: 0.1
+    init_error_y: 0.1
+    init_error_z: 0.1
+    init_error_yaw: 0.05
+    init_error_pitch: 0.01
+    init_error_roll: 0.01
+    translation_noise: 0.1
+    rotation_noise: 0.1
+    reseed_percentage_losers: 0.9
+    reseed_percentage_winners: 0.03
+    multihypothesis: False
+    max_hypotheses: 5
+    min_candidate_weight: 0.5
+    min_candidate_distance: 1.0
+    min_candidate_angle: 1.57
+    low_q_hypo_thereshold: 0.25
+    very_low_q_hypo_thereshold: 0.10
+    hypo_merge_distance: 0.3
+    hypo_merge_angle: 0.5
+    good_hypo_thereshold: 0.5
+    min_hypo_diff_winner: 0.3
+    matchers: ['matcher_0']
+    matcher_0:
+      type: matcher2d
+      topic: /front_laser/scan
+    correction_sources: ['front_laser']
+    front_laser:
+      type: laser
+      topic: /front_laser/scan
+      distance_perception_error: 0.05
+      debug: true
+    rear_laser:
+      type: laser
+      topic: /rear_laser/scan
+      distance_perception_error: 0.05
+    pc_0:
+      type: pointcloud
+      topic: /velodyne_points
+      distance_perception_error: 0.1
+      max_perception_distance: 10.0
+      point_step: 50
+```
+
+## Benchmarking
+
+The bottleneck is in the octomap function RayTrace. Build octomap with (OpenMPI)[https://www.open-mpi.org/] support to improve it.
+
+![Captura desde 2023-08-26 08-42-04](https://github.com/navigation-gridmap/mh_amcl/assets/3810011/de4cb8c0-b778-485a-85c4-ba59f2a708a9)
+
 
 ## Citing
 
+**Cooming soon**. Meanwhile, you can cite the 2D version:
 ```
 @INPROCEEDINGS{10160957,
   author={García, Alberto and Martín, Francisco and Guerrero, José Miguel and Rodríguez, Francisco J. and Matellán, Vicente},
