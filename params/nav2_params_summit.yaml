@@ -57,8 +57,8 @@ mh_amcl:
     init_error_yaw: 0.02
     init_error_pitch: 0.01
     init_error_roll: 0.01
-    translation_noise: 0.05
-    rotation_noise: 0.05
+    translation_noise: 0.1
+    rotation_noise: 0.1
     reseed_percentage_losers: 0.9
     reseed_percentage_winners: 0.03
     multihypothesis: False

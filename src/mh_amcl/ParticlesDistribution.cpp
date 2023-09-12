@@ -593,7 +593,7 @@ ParticlesDistribution::reseed()
     int index = std::clamp(static_cast<int>(selector(generator_)), 0, number_winners);
 
     Particle p;
-    p.prob = new_particles.back().prob;
+    p.prob = new_particles.back().prob / 10.0;
 
     auto w_pose = particles_[i].pose.getOrigin();
 

@@ -94,7 +94,7 @@ private:
 
   rclcpp::CallbackGroup::SharedPtr reentrant_1_cg_;
   rclcpp::CallbackGroup::SharedPtr other_cg_;
-  std::mutex mutex_;
+  std::mutex correct_mutex_;
 
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;

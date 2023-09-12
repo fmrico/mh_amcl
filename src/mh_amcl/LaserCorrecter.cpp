@@ -102,7 +102,7 @@ LaserCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & update
         const double normal_comp_2 = std::exp(-0.5 * a * a);
 
         double prob = std::clamp(normal_comp_1 * normal_comp_2, 0.0, 1.0);
-        p.prob = std::max(p.prob * prob, 0.000001);
+        p.prob = std::max(p.prob + prob, 0.000001);
         
         p.possible_hits += 1.0;
         // p.hits += 1.0;
@@ -113,7 +113,6 @@ LaserCorrecter::correct(std::vector<Particle> & particles, rclcpp::Time & update
       }
     }
   }
-
 
   update_time = last_perception_->header.stamp;
   // last_perception_ = nullptr;

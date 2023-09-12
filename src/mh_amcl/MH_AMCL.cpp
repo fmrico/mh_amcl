@@ -334,6 +334,7 @@ MH_AMCL_Node::octomap_callback(const octomap_msgs::msg::Octomap::ConstSharedPtr 
 void
 MH_AMCL_Node::correct()
 {
+  std::scoped_lock l(correct_mutex_);
   auto start = now();
 
   for (auto & particles : particles_population_) {
@@ -350,6 +351,8 @@ MH_AMCL_Node::correct()
 void
 MH_AMCL_Node::reseed()
 {
+  std::scoped_lock l2(correct_mutex_);
+
   auto start = now();
 
   for (auto & particles : particles_population_) {
