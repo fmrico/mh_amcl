@@ -188,17 +188,20 @@ MH_AMCL_Node::on_activate(const rclcpp_lifecycle::State & state)
     RCLCPP_INFO(get_logger(), "use_sim_time = false");
   }
 
-  predict_timer_ = create_wall_timer(10ms, std::bind(&MH_AMCL_Node::predict, this));
-  correct_timer_ = create_wall_timer(100ms, std::bind(&MH_AMCL_Node::correct, this));
-  reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this));
-  hypotesis_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::manage_hypotesis, this));
+  reentrant_1_cg_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  other_cg_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+  predict_timer_ = create_wall_timer(10ms, std::bind(&MH_AMCL_Node::predict, this), reentrant_1_cg_);
+  correct_timer_ = create_wall_timer(500ms, std::bind(&MH_AMCL_Node::correct, this), reentrant_1_cg_);  
+  reseed_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::reseed, this), other_cg_);
+  hypotesis_timer_ = create_wall_timer(3s, std::bind(&MH_AMCL_Node::manage_hypotesis, this), other_cg_);
 
   publish_particles_timer_ = create_wall_timer(
-    100ms, std::bind(&MH_AMCL_Node::publish_particles, this));
+    100ms, std::bind(&MH_AMCL_Node::publish_particles, this),other_cg_);
   publish_position_timer_ = create_wall_timer(
-    30ms, std::bind(&MH_AMCL_Node::publish_position, this));
+    30ms, std::bind(&MH_AMCL_Node::publish_position, this), other_cg_);
   publish_position_tf_timer_ = create_wall_timer(
-    10ms, std::bind(&MH_AMCL_Node::publish_position_tf, this));
+    10ms, std::bind(&MH_AMCL_Node::publish_position_tf, this), other_cg_);
 
   std::list<CallbackReturnT> ret;
   for (auto & particles : particles_population_) {
@@ -296,7 +299,6 @@ MH_AMCL_Node::predict()
 
     if (valid_prev_odom2bf_) {
       tf2::Transform bfprev2bf = odom2prevbf_.inverse() * odom2bf;
-
       for (auto & particles : particles_population_) {
         particles->predict(bfprev2bf, gridmap_);
       }
@@ -305,6 +307,8 @@ MH_AMCL_Node::predict()
     valid_prev_odom2bf_ = true;
     odom2prevbf_ = odom2bf;
   }
+
+  publish_position_tf();
 
   RCLCPP_DEBUG_STREAM(get_logger(), "Predict [" << (now() - start).seconds() << " secs]");
 }
@@ -396,7 +400,21 @@ MH_AMCL_Node::initpose_callback(
 void
 MH_AMCL_Node::publish_position()
 {
-  geometry_msgs::msg::PoseWithCovarianceStamped pose = current_amcl_->get_pose();
+  tf2::WithCovarianceStamped<tf2::Transform> input_pose = current_amcl_->get_pose();
+
+  geometry_msgs::msg::PoseStamped poseStamped;
+  tf2::toMsg(static_cast<tf2::Transform>(input_pose), poseStamped.pose);
+
+
+  geometry_msgs::msg::PoseWithCovarianceStamped pose;
+  pose.pose.pose = poseStamped.pose;
+
+  for (size_t i = 0; i < 6; ++i) {
+    for (size_t j = 0; j < 6; ++j) {
+      size_t index = i * 6 + j; // Calculate the index in the 1D array
+      pose.pose.covariance[index] = input_pose.cov_mat_[i][j];
+    }
+  }
 
   // Publish pose
   if (pose_pub_->get_subscription_count() > 0) {
@@ -427,15 +445,8 @@ MH_AMCL_Node::publish_position()
 void
 MH_AMCL_Node::publish_position_tf()
 {
-  // Publish tf map -> odom
-  geometry_msgs::msg::PoseWithCovarianceStamped pose = current_amcl_->get_pose();
-
-  tf2::Transform map2robot;
+  tf2::Transform map2robot = static_cast<tf2::Transform>(current_amcl_->get_pose());
   tf2::Stamped<tf2::Transform> robot2odom;
-  const auto & tpos = pose.pose.pose.position;
-  const auto & tor = pose.pose.pose.orientation;
-  map2robot.setOrigin({tpos.x, tpos.y, tpos.z});
-  map2robot.setRotation({tor.x, tor.y, tor.z, tor.w});
 
   std::string error;
   if (tf_buffer_.canTransform("base_footprint", "odom", tf2::TimePointZero, &error)) {
@@ -489,11 +500,11 @@ MH_AMCL_Node::manage_hypotesis()
         bool covered = false;
 
         for (const auto & distr : particles_population_) {
-          const auto & pose = distr->get_pose().pose.pose;
-          geometry_msgs::msg::Pose posetf = toMsg(transform.transform);
+          const tf2::Transform pose1 = static_cast<tf2::Transform>(distr->get_pose());          
+          tf2::Transform pose2 = transform.transform;
 
-          double dist, difft;
-          get_distances(pose, posetf, dist, difft);
+          double dist = pose1.getOrigin().distance2(pose2.getOrigin());
+          double difft = 2.0 * std::acos(std::abs(pose1.getRotation().dot(pose2.getRotation())));
 
           if (dist < min_candidate_distance_ && difft < min_candidate_angle_) {
             covered = true;
@@ -560,9 +571,13 @@ MH_AMCL_Node::manage_hypotesis()
           ++it2;
           continue;
         }
+        
+        const tf2::Transform pose1 = static_cast<tf2::Transform>((*it1)->get_pose());          
+        const tf2::Transform pose2 = static_cast<tf2::Transform>((*it2)->get_pose());          
 
-        double dist_xy, dist_t;
-        get_distances((*it1)->get_pose().pose.pose, (*it2)->get_pose().pose.pose, dist_xy, dist_t);
+        double dist_xy = pose1.getOrigin().distance2(pose2.getOrigin());
+        double dist_t = 2.0 * std::acos(std::abs(pose1.getRotation().dot(pose2.getRotation())));
+
         if (dist_xy < hypo_merge_distance_ && dist_t < hypo_merge_angle_) {
           (*it1)->merge(**it2);
           it2 = particles_population_.erase(it2);
@@ -610,28 +625,6 @@ MH_AMCL_Node::manage_hypotesis()
     }
   }
   std::cerr << "=====================================" << std::endl;
-}
-
-void
-MH_AMCL_Node::get_distances(
-  const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
-  double & dist_xy, double & dist_theta)
-{
-  double diff_x = pose1.position.x - pose2.position.x;
-  double diff_y = pose1.position.y - pose2.position.y;
-  dist_xy = sqrt(diff_x * diff_x + diff_y * diff_y);
-
-  tf2::Quaternion q1(pose1.orientation.x, pose1.orientation.y,
-    pose1.orientation.z, pose1.orientation.w);
-  tf2::Quaternion q2(pose2.orientation.x, pose2.orientation.y,
-    pose2.orientation.z, pose2.orientation.w);
-
-  double roll1, pitch1, yaw1;
-  double roll2, pitch2, yaw2;
-  tf2::Matrix3x3(q1).getRPY(roll1, pitch1, yaw1);
-  tf2::Matrix3x3(q2).getRPY(roll2, pitch2, yaw2);
-
-  dist_theta = fabs(atan2(sin(yaw1 - yaw2), cos(yaw1 - yaw2)));
 }
 
 }  // namespace mh_amcl

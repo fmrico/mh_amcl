@@ -142,7 +142,7 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
   init_pose.setOrigin(tf2::Vector3(init_pos_x_, init_pos_y_, init_pos_z_));
 
   tf2::Quaternion q;
-  q.setRPY(0.0, 0.0, init_pos_yaw_);
+  q.setRPY(init_pos_roll_, init_pos_pitch_, init_pos_yaw_);
   init_pose.setRotation(q);
 
   init(init_pose);
@@ -152,7 +152,7 @@ ParticlesDistribution::on_configure(const rclcpp_lifecycle::State & state)
 }
 
 void
-ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped & pose)
+ParticlesDistribution::update_pose(tf2::WithCovarianceStamped<tf2::Transform> & pose)
 {
   // How many particles we use to determine the pose. They are sorted by prob in last reseed
   size_t particles_used = particles_.size();
@@ -166,10 +166,10 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
   std::vector<double> w(particles_used, 0.0);
 
   for (int i = 0; i < particles_used; i++) {
-    const auto & pose = particles_[i].pose.getOrigin();
-    vpx[i] = pose.x();
-    vpy[i] = pose.y();
-    vpz[i] = pose.z();
+    const auto & poseaux = particles_[i].pose.getOrigin();
+    vpx[i] = poseaux.x();
+    vpy[i] = poseaux.y();
+    vpz[i] = poseaux.z();
 
     double troll, tpitch, tyaw;
     tf2::Matrix3x3(particles_[i].pose.getRotation()).getRPY(troll, tpitch, tyaw);
@@ -180,12 +180,7 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
     w[i] = particles_[i].prob;
   }
 
-  pose.pose.pose.position.x = weighted_mean(vpx, w);
-  pose.pose.pose.position.y = weighted_mean(vpy, w);
-  pose.pose.pose.position.z = weighted_mean(vpz, w);
-
-  tf2::WithCovarianceStamped<tf2::Transform> ret;
-  ret.setOrigin({weighted_mean(vpx, w), weighted_mean(vpx, w), weighted_mean(vpz, w)});
+  pose.setOrigin({weighted_mean(vpx, w), weighted_mean(vpy, w), weighted_mean(vpz, w)});
 
   tf2::Quaternion q;
   double mvrr = angle_weighted_mean(vrr, w);
@@ -193,12 +188,7 @@ ParticlesDistribution::update_pose(geometry_msgs::msg::PoseWithCovarianceStamped
   double mvry = angle_weighted_mean(vry, w);
 
   q.setRPY(mvrr, mvrp, mvry);
-  ret.setRotation(q);
-
-  pose.pose.pose.orientation.x = q.x();
-  pose.pose.pose.orientation.y = q.y();
-  pose.pose.pose.orientation.z = q.z();
-  pose.pose.pose.orientation.w = q.w();
+  pose.setRotation(q);
 }
 
 double
@@ -210,7 +200,7 @@ ParticlesDistribution::normalize_angle(double angle)
 }
 
 void
-ParticlesDistribution::update_covariance(geometry_msgs::msg::PoseWithCovarianceStamped & pose)
+ParticlesDistribution::update_covariance(tf2::WithCovarianceStamped<tf2::Transform> & pose)
 {
   std::vector<double> vpx(particles_.size(), 0.0);
   std::vector<double> vpy(particles_.size(), 0.0);
@@ -238,7 +228,7 @@ ParticlesDistribution::update_covariance(geometry_msgs::msg::PoseWithCovarianceS
     for (int j = 0; j < 6; j++) {
       bool is_i_angle = i >= 3;
       bool is_j_angle = j >= 3;
-      pose.pose.covariance[i * 6 + j] = covariance(vs[i], vs[j], is_i_angle, is_j_angle);
+      pose.cov_mat_[i][j] = covariance(vs[i], vs[j], is_i_angle, is_j_angle);
     }
   }
 }
@@ -397,6 +387,22 @@ ParticlesDistribution::predict(const tf2::Transform & movement, std::shared_ptr<
 {
   auto & gridpmap_pos = gridmap->getPosition();
 
+  pose_.setData(static_cast<tf2::Transform>(pose_) * movement);
+
+  if (gridmap != nullptr) {
+    auto & pos = pose_.getOrigin();
+
+    try {
+      grid_map::Position particle_pos(pos.x(), pos.y());
+      particle_pos = particle_pos + gridpmap_pos;
+      float elevation = gridmap->atPosition("elevation", particle_pos);
+      pose_.setOrigin({pos.x(), pos.y(), static_cast<double>(elevation)});
+    } catch (std::out_of_range e) {
+      std::cerr << "Error accessing gridmap pos at " << pos.x() << ", " << pos.y() << ")" << std::endl;
+    }
+  }
+
+
   for (auto & particle : particles_) {
     particle.pose = particle.pose * movement * add_noise(movement);
 
@@ -412,8 +418,7 @@ ParticlesDistribution::predict(const tf2::Transform & movement, std::shared_ptr<
         std::cerr << "Error accessing gridmap pos at " << pos.x() << ", " << pos.y() << ")" << std::endl;
       }
     }
-  }
-  update_pose(pose_);
+  }  
 }
 
 tf2::Transform
@@ -622,6 +627,8 @@ ParticlesDistribution::reseed()
 
   particles_ = new_particles;
   normalize();
+
+  update_pose(pose_);
   update_covariance(pose_);
 }
 

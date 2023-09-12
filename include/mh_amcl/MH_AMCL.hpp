@@ -80,9 +80,6 @@ protected:
   void publish_position_tf();
   void manage_hypotesis();
 
-  void get_distances(
-    const geometry_msgs::msg::Pose & pose1, const geometry_msgs::msg::Pose & pose2,
-    double & dist_xy, double & dist_theta);
   unsigned char get_cost(const geometry_msgs::msg::Pose & pose);
   geometry_msgs::msg::Pose toMsg(const tf2::Transform & tf);
 
@@ -93,6 +90,11 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_init_pose_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav2_msgs::msg::ParticleCloud>::SharedPtr particles_pub_;
+
+
+  rclcpp::CallbackGroup::SharedPtr reentrant_1_cg_;
+  rclcpp::CallbackGroup::SharedPtr other_cg_;
+  std::mutex mutex_;
 
   rclcpp::TimerBase::SharedPtr predict_timer_;
   rclcpp::TimerBase::SharedPtr correct_timer_;

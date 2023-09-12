@@ -65,7 +65,7 @@ public:
   CallbackReturnT on_cleanup(const rclcpp_lifecycle::State & state);
 
   void publish_particles(int base_idx, const std_msgs::msg::ColorRGBA & color) const;
-  geometry_msgs::msg::PoseWithCovarianceStamped get_pose() const {return pose_;}
+  tf2::WithCovarianceStamped<tf2::Transform> get_pose() const {return pose_;}
   float get_quality() {return quality_;}
   void merge(ParticlesDistribution & other);
 
@@ -78,10 +78,10 @@ protected:
 
   void normalize();
   double normalize_angle(double angle);
-  void update_pose(geometry_msgs::msg::PoseWithCovarianceStamped & pose);
-  void update_covariance(geometry_msgs::msg::PoseWithCovarianceStamped & pose);
+  void update_pose(tf2::WithCovarianceStamped<tf2::Transform> & pose);
+  void update_covariance(tf2::WithCovarianceStamped<tf2::Transform> & pose);
 
-  geometry_msgs::msg::PoseWithCovarianceStamped pose_;
+  tf2::WithCovarianceStamped<tf2::Transform> pose_;
 
   std::random_device rd_;
   std::mt19937 generator_;

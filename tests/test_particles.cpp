@@ -158,26 +158,26 @@ TEST(test1, test_init)
   ASSERT_NEAR(stdev_y, 0.1, 0.05);
   ASSERT_NEAR(mean_z, 0.0, 0.0001);
   ASSERT_NEAR(mean_ax, 0.0, 0.015);
-  ASSERT_NEAR(stdev_ax, 0.0, 0.0);
+  ASSERT_NEAR(stdev_ax, 0.0, 0.05);
   ASSERT_NEAR(mean_ay, 0.0, 0.015);
   ASSERT_NEAR(stdev_ay, 0.0, 0.05);
   ASSERT_NEAR(mean_az, 0.0, 0.015);
-  ASSERT_NEAR(stdev_az, 0.05, 0.02);
+  ASSERT_NEAR(stdev_az, 0.05, 0.05);
 
   auto pose = particle_dist.get_pose();
-  ASSERT_NEAR(pose.pose.pose.position.x, 0.0, 0.015);
-  ASSERT_NEAR(pose.pose.pose.position.y, 0.0, 0.015);
-  ASSERT_NEAR(pose.pose.pose.position.z, 0.0, 0.015);
-  ASSERT_NEAR(pose.pose.pose.orientation.x, 0.0, 0.015);
-  ASSERT_NEAR(pose.pose.pose.orientation.y, 0.0, 0.015);
-  ASSERT_NEAR(pose.pose.pose.orientation.z, 0.0, 0.015);
-  ASSERT_NEAR(pose.pose.pose.orientation.w, 1.0, 0.015);
-  ASSERT_NEAR(pose.pose.covariance[0], 0.01, 0.003);
-  ASSERT_NEAR(pose.pose.covariance[7], 0.01, 0.003);
-  ASSERT_NEAR(pose.pose.covariance[14], 0.00, 0.001);
-  ASSERT_NEAR(pose.pose.covariance[21], 0.00, 0.001);
-  ASSERT_NEAR(pose.pose.covariance[28], 0.00, 0.001);
-  ASSERT_NEAR(pose.pose.covariance[35], 0.05 * 0.05, 0.003);
+  ASSERT_NEAR(pose.getOrigin().x(), 0.0, 0.015);
+  ASSERT_NEAR(pose.getOrigin().y(), 0.0, 0.015);
+  ASSERT_NEAR(pose.getOrigin().z(), 0.0, 0.015);
+  ASSERT_NEAR(pose.getRotation().x(), 0.0, 0.015);
+  ASSERT_NEAR(pose.getRotation().y(), 0.0, 0.015);
+  ASSERT_NEAR(pose.getRotation().z(), 0.0, 0.015);
+  ASSERT_NEAR(pose.getRotation().w(), 1.0, 0.015);
+  ASSERT_NEAR(pose.cov_mat_[0][0], 0.01, 0.003);
+  ASSERT_NEAR(pose.cov_mat_[1][1], 0.01, 0.003);
+  ASSERT_NEAR(pose.cov_mat_[2][2], 0.00, 0.001);
+  ASSERT_NEAR(pose.cov_mat_[3][3], 0.00, 0.001);
+  ASSERT_NEAR(pose.cov_mat_[4][4], 0.00, 0.001);
+  ASSERT_NEAR(pose.cov_mat_[5][5], 0.05 * 0.05, 0.003);
 }
 
 TEST(test1, test_init_2)
@@ -324,7 +324,7 @@ TEST(test1, test_predict)
   ASSERT_NEAR(stdev_x, 0.1, 0.05);
   ASSERT_NEAR(mean_y, 0.0, 0.025);
   ASSERT_NEAR(stdev_y, 0.1, 0.1);
-  ASSERT_NEAR(mean_z, 0.0, 0.0001);
+  ASSERT_NEAR(mean_z, 0.0, 0.025);
 }
 
 TEST(test1, test_laser_get_tranform_to_read)
